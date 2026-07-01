@@ -1,0 +1,27 @@
+# Environment & secrets
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Data files with personal holdings
+data/holdings.json
+data/sp500_cache.json
+
+# Database (local state)
+db/*.db
+db/*.sqlite
+
+# Logs
+alerts.log
+*.log
+
+# macOS
+.DS_Store
+
+# Claude Code
+.claude/
