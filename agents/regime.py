@@ -89,8 +89,9 @@ Recent market headlines:
 Respond ONLY with JSON: {{"key": "calm|mixed|volatile", "rationale": "one sentence explaining why"}}"""
 
     try:
+        model_id = os.environ.get("ADVISOR_AI_MODEL", "claude-sonnet-4-6")
         resp = _get_client().messages.create(
-            model="claude-sonnet-4-6",
+            model=model_id,
             max_tokens=200,
             messages=[{"role": "user", "content": prompt}],
         )

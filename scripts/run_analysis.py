@@ -1,6 +1,7 @@
 """
 Core pipeline: runs all agents on the watchlist and returns ranked suggestions.
-Call this from the dashboard or CLI.
+Parallelized: yfinance fetches run concurrently, sentiment is a single batch LLM call.
+Typical runtime: ~8-15 seconds for a 68-stock watchlist.
 """
 import sys, pathlib
 sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
@@ -8,25 +9,51 @@ sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
 from dotenv import load_dotenv
 load_dotenv()
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
 from data.loader import (
     load_watchlist, load_holdings, fetch_ticker_info,
     fetch_price_history, fetch_vix, current_portfolio_value, holdings_by_symbol
 )
 from agents.fundamentals import score_fundamentals
 from agents.technicals import score_technicals
-from agents.sentiment import score_sentiment
+from agents.sentiment import score_sentiment_batch
 from agents.regime import detect_regime, aggregate_score
 from agents.position_sizer import compute_suggestion
 from db.store import init_db, log_suggestion
 
 
-def run_analysis(status_cb=None, use_llm_regime: bool = True) -> tuple[list[dict], dict]:
-    """Returns (suggestions_list, regime_dict) sorted by score desc."""
+def _fetch_one(item):
+    """Fetch all yfinance data for one watchlist item. Runs in a thread."""
+    symbol = item["symbol"]
+    info = fetch_ticker_info(symbol)
+    history = fetch_price_history(symbol)
+    fund = score_fundamentals(info)
+    tech = score_technicals(history)
+    return {
+        "symbol":    symbol,
+        "industry":  item.get("industry", "Unknown"),
+        "info":      info,
+        "fund":      fund,
+        "tech":      tech,
+    }
+
+
+def run_analysis(
+    status_cb=None,
+    use_llm_regime: bool = True,
+    max_workers: int = 20,
+) -> tuple:
+    """Returns (suggestions_list, regime_dict) sorted by score desc.
+
+    max_workers controls parallel yfinance threads. 20 is safe for most
+    networks; lower it if you see rate-limit errors.
+    """
     init_db()
 
     vix = fetch_vix()
     if status_cb:
-        status_cb("Detecting market regime...")
+        status_cb("Detecting market regime…")
     regime = detect_regime(vix, use_llm=use_llm_regime)
 
     holdings = load_holdings()
@@ -34,36 +61,51 @@ def run_analysis(status_cb=None, use_llm_regime: bool = True) -> tuple[list[dict
     by_symbol = holdings_by_symbol(holdings)
     watchlist = load_watchlist()
 
+    if status_cb:
+        status_cb(f"Fetching data for {len(watchlist)} stocks in parallel…")
+
+    partial = {}
+    with ThreadPoolExecutor(max_workers=max_workers) as ex:
+        futures = {ex.submit(_fetch_one, item): item["symbol"] for item in watchlist}
+        done = 0
+        for fut in as_completed(futures):
+            done += 1
+            try:
+                res = fut.result()
+                partial[res["symbol"]] = res
+                if status_cb and done % 10 == 0:
+                    status_cb(f"Fetched {done}/{len(watchlist)} stocks…")
+            except Exception:
+                pass
+
+    if status_cb:
+        status_cb("Scoring sentiment with AI (one batch call)…")
+
+    symbols_scored = list(partial.keys())
+    sent_scores = score_sentiment_batch(symbols_scored)
+
     results = []
-    for item in watchlist:
-        symbol = item["symbol"]
-        industry = item.get("industry", "Unknown")
-        if status_cb:
-            status_cb(f"Analyzing {symbol}...")
-
-        info = fetch_ticker_info(symbol)
-        history = fetch_price_history(symbol)
-
-        fund = score_fundamentals(info)
-        tech = score_technicals(history)
-        sent = score_sentiment(symbol)
-
-        final = aggregate_score(fund["score"], tech["score"], sent["score"], regime)
+    for symbol, pr in partial.items():
+        sent = sent_scores.get(symbol, {"score": 50.0, "reasons": []})
+        final = aggregate_score(pr["fund"]["score"], pr["tech"]["score"], sent["score"], regime)
 
         suggestion = compute_suggestion(
-            symbol, final, info, portfolio_value, by_symbol.get(symbol)
+            symbol, final, pr["info"], portfolio_value, by_symbol.get(symbol)
         )
-        suggestion["industry"] = industry
-        suggestion["day_change_pct"] = info.get("regularMarketChangePercent")
+        suggestion["industry"]      = pr["industry"]
+        suggestion["day_change_pct"] = pr["info"].get("regularMarketChangePercent")
+        suggestion["headlines"]     = sent.get("headlines", [])
 
-        all_reasons = fund["reasons"] + tech["reasons"] + sent["reasons"]
-        suggestion["reasons"] = all_reasons
-        suggestion["fund_score"] = fund["score"]
-        suggestion["tech_score"] = tech["score"]
+        all_reasons = pr["fund"]["reasons"] + pr["tech"]["reasons"] + sent["reasons"]
+        suggestion["reasons"]    = all_reasons
+        suggestion["fund_score"] = pr["fund"]["score"]
+        suggestion["tech_score"] = pr["tech"]["score"]
         suggestion["sent_score"] = sent["score"]
 
-        log_suggestion(suggestion, fund["score"], tech["score"], sent["score"],
-                       regime["key"], all_reasons)
+        log_suggestion(
+            suggestion, pr["fund"]["score"], pr["tech"]["score"], sent["score"],
+            regime["key"], all_reasons
+        )
         results.append(suggestion)
 
     results.sort(key=lambda x: x["score"], reverse=True)
@@ -71,9 +113,13 @@ def run_analysis(status_cb=None, use_llm_regime: bool = True) -> tuple[list[dict
 
 
 if __name__ == "__main__":
+    import time
+    t0 = time.time()
     suggestions, regime = run_analysis(status_cb=print)
+    elapsed = time.time() - t0
     print(f"\nRegime: {regime['label']}  (VIX {regime['vix']})")
-    print(f"Weights → Fund:{regime['fund']} Tech:{regime['tech']} Sent:{regime['sent']}\n")
+    print(f"Weights → Fund:{regime['fund']} Tech:{regime['tech']} Sent:{regime['sent']}")
+    print(f"Completed in {elapsed:.1f}s\n")
     for s in suggestions:
         print(f"{s['action']:10} {s['symbol']:6} score={s['score']} "
               f"price=${s['current_price']} → ${s['target_price']} "

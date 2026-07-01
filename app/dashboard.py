@@ -5,6 +5,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
 from dotenv import load_dotenv
 load_dotenv()
 
+import math
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
@@ -33,62 +34,99 @@ st.set_page_config(
 # ── Global CSS ────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
   html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
 
+  /* ── Sidebar shell ── */
   section[data-testid="stSidebar"] {
-    background: #0f1117; border-right: 1px solid #1e2130;
+    background: #0a0d14 !important;
+    border-right: 1px solid #1a1f2e !important;
   }
-  section[data-testid="stSidebar"] * { color: #e2e8f0 !important; }
+  section[data-testid="stSidebar"] * { color: #cbd5e1 !important; }
+
+  /* ── Hide the ugly radio widget entirely ── */
+  section[data-testid="stSidebar"] .stRadio { display: none !important; }
+
+  /* ── Run Analysis button ── */
   section[data-testid="stSidebar"] .stButton > button {
-    background: #1e2130; border: 1px solid #2d3348;
-    color: #e2e8f0 !important; border-radius: 8px;
-    width: 100%; transition: background 0.15s;
+    background: linear-gradient(135deg,#6366f1,#8b5cf6) !important;
+    border: none !important; color: #fff !important;
+    border-radius: 10px; width: 100%;
+    font-weight: 600; font-size: .88rem;
+    padding: .55rem 1rem;
+    box-shadow: 0 2px 8px rgba(99,102,241,.35);
+    transition: opacity .15s;
   }
-  section[data-testid="stSidebar"] .stButton > button:hover { background: #2d3348; }
+  section[data-testid="stSidebar"] .stButton > button:hover { opacity: .85; }
 
-  .main .block-container { padding: 2rem 2.5rem; max-width: 1300px; }
+  /* ── Sidebar metrics ── */
+  section[data-testid="stSidebar"] [data-testid="stMetric"] {
+    background: #12161f;
+    border: 1px solid #1e2438;
+    border-radius: 10px;
+    padding: .7rem .9rem;
+    margin-bottom: .4rem;
+  }
+  section[data-testid="stSidebar"] [data-testid="stMetricLabel"] p {
+    font-size: .68rem !important; font-weight: 600 !important;
+    letter-spacing: .07em; text-transform: uppercase; color: #64748b !important;
+  }
+  section[data-testid="stSidebar"] [data-testid="stMetricValue"] {
+    font-size: 1.25rem !important; font-weight: 700 !important; color: #f1f5f9 !important;
+  }
+  section[data-testid="stSidebar"] [data-testid="stMetricDelta"] {
+    font-size: .75rem !important;
+  }
 
+  /* ── Main content ── */
+  .main .block-container { padding: 2rem 2.5rem; max-width: 1340px; }
+
+  /* ── KPI cards ── */
   .metric-card {
-    background: #fff; border: 1px solid #e8eaf0;
-    border-radius: 12px; padding: 1.2rem 1.5rem;
-    box-shadow: 0 1px 4px rgba(0,0,0,.06);
+    background: #fff; border: 1px solid #eef0f6;
+    border-radius: 14px; padding: 1.25rem 1.5rem;
+    box-shadow: 0 1px 6px rgba(0,0,0,.05);
   }
-  .metric-label { font-size:.78rem; font-weight:600; letter-spacing:.06em;
-    color:#6b7280; text-transform:uppercase; }
-  .metric-value { font-size:1.7rem; font-weight:700; color:#111827; margin-top:.2rem; }
-  .metric-sub   { font-size:.82rem; color:#9ca3af; margin-top:.15rem; }
+  .metric-label { font-size:.72rem; font-weight:700; letter-spacing:.08em;
+    color:#94a3b8; text-transform:uppercase; }
+  .metric-value { font-size:1.8rem; font-weight:800; color:#0f172a; margin-top:.25rem; line-height:1.1; }
+  .metric-sub   { font-size:.8rem; color:#94a3b8; margin-top:.3rem; }
 
-  .badge { display:inline-block; padding:3px 10px; border-radius:999px;
-    font-size:.78rem; font-weight:600; }
-  .badge-strong-buy { background:#dcfce7; color:#166534; }
-  .badge-buy        { background:#dbeafe; color:#1e40af; }
-  .badge-watch      { background:#fef9c3; color:#854d0e; }
-  .badge-avoid      { background:#fee2e2; color:#991b1b; }
+  /* ── Badges ── */
+  .badge { display:inline-block; padding:3px 11px; border-radius:999px; font-size:.76rem; font-weight:700; }
+  .badge-strong-buy { background:#dcfce7; color:#15803d; }
+  .badge-buy        { background:#dbeafe; color:#1d4ed8; }
+  .badge-watch      { background:#fef3c7; color:#b45309; }
+  .badge-avoid      { background:#fee2e2; color:#b91c1c; }
 
+  /* ── Section headers ── */
   .section-header {
-    font-size:1.1rem; font-weight:700; color:#111827;
-    padding-bottom:.5rem; border-bottom:2px solid #f3f4f6; margin-bottom:1.2rem;
+    font-size:1rem; font-weight:700; color:#0f172a;
+    padding-bottom:.5rem; border-bottom:2px solid #f1f5f9; margin-bottom:1.1rem;
+    letter-spacing:.01em;
   }
 
-  .score-bar-bg   { background:#f3f4f6; border-radius:999px; height:7px; width:100%; }
-  .score-bar-fill { height:7px; border-radius:999px; }
+  /* ── Score bars ── */
+  .score-bar-bg   { background:#f1f5f9; border-radius:999px; height:6px; width:100%; }
+  .score-bar-fill { height:6px; border-radius:999px; }
 
+  /* ── Regime banner ── */
   .regime-banner {
-    background: linear-gradient(135deg,#667eea 0%,#764ba2 100%);
-    border-radius:12px; padding:.9rem 1.4rem; color:white;
+    background: linear-gradient(135deg,#4f46e5 0%,#7c3aed 100%);
+    border-radius:14px; padding:1rem 1.5rem; color:white;
   }
-  .regime-key { font-size:1.1rem; font-weight:700; }
-  .regime-sub { font-size:.83rem; opacity:.85; }
+  .regime-key { font-size:1.05rem; font-weight:700; }
+  .regime-sub { font-size:.82rem; opacity:.85; }
 
+  /* ── Warning banner ── */
   .warn-banner {
     background:#fffbeb; border:1px solid #fcd34d;
     border-radius:10px; padding:.8rem 1.2rem;
     font-size:.9rem; color:#92400e;
   }
 
-  thead th { background:#f9fafb !important; }
-  .stDataFrame { border-radius:10px; overflow:hidden; }
+  thead th { background:#f8fafc !important; }
+  .stDataFrame { border-radius:12px; overflow:hidden; }
   #MainMenu, footer { visibility:hidden; }
 </style>
 """, unsafe_allow_html=True)
@@ -148,21 +186,28 @@ def _sparkline(symbol: str) -> go.Figure:
 # ── Auto-refresh every 5 minutes ─────────────────────────────────────────────
 st_autorefresh(interval=5 * 60 * 1000, key="auto_refresh")
 
-# ── Sidebar portfolio snapshot (computed from imported holdings) ───────────────
+def _safe_float(v, default=0.0):
+    try:
+        f = float(v)
+        return default if math.isnan(f) or math.isinf(f) else f
+    except (TypeError, ValueError):
+        return default
+
+# ── Sidebar portfolio snapshot ────────────────────────────────────────────────
 def _sidebar_snapshot():
     h = load_holdings()
     positions = h.get("positions", [])
-    cash = float(h.get("cash", 0))
+    cash = _safe_float(h.get("cash", 0))
 
     equity_val = 0.0
     total_cost = 0.0
     total_gl   = 0.0
     day_gl     = 0.0
-    has_rich   = False  # True if at least one position has broker-imported value
+    has_rich   = False
 
     for p in positions:
-        qty    = float(p.get("quantity", 0) or 0)
-        cb     = float(p.get("cost_basis", 0) or 0)
+        qty    = _safe_float(p.get("quantity", 0))
+        cb     = _safe_float(p.get("cost_basis", 0))
         cur_v  = p.get("current_value")
         cost_v = p.get("total_cost")
         gl_amt = p.get("unrealized_gl")
@@ -170,76 +215,235 @@ def _sidebar_snapshot():
 
         if cur_v is not None:
             has_rich = True
-            cur_v  = float(cur_v)
-            cost_v = float(cost_v or (cb * qty))
-            gl_amt = float(gl_amt if gl_amt is not None else (cur_v - cost_v))
-            day_gl += float(day_v or 0)
-            equity_val += cur_v
-            total_cost += cost_v
-            total_gl   += gl_amt
+            cv  = _safe_float(cur_v)
+            ctv = _safe_float(cost_v) if cost_v is not None else (cb * qty)
+            gl  = _safe_float(gl_amt) if gl_amt is not None else (cv - ctv)
+            equity_val += cv
+            total_cost += ctv
+            total_gl   += gl
+            day_gl     += _safe_float(day_v)
         else:
-            # old format — use cost_basis as proxy for value
             equity_val += cb * qty
             total_cost += cb * qty
 
     total_val    = equity_val + cash
-    total_gl_pct = (total_gl / total_cost * 100) if total_cost else 0.0
-    day_gl_pct   = (day_gl / (equity_val - day_gl) * 100) if (equity_val - day_gl) else 0.0
+    total_gl_pct = (total_gl / total_cost * 100) if total_cost > 0 else 0.0
+    prev_eq      = equity_val - day_gl
+    day_gl_pct   = (day_gl / prev_eq * 100) if prev_eq > 0 else 0.0
+
+    # Sanitise everything before returning
+    def _s(v): return _safe_float(v)
     return {
-        "total_val":   total_val,
-        "equity_val":  equity_val,
-        "cash":        cash,
-        "total_gl":    total_gl,
-        "total_gl_pct":total_gl_pct,
-        "day_gl":      day_gl,
-        "day_gl_pct":  day_gl_pct,
-        "n_positions": len(positions),
-        "n_watchlist": len(load_watchlist()),
-        "has_rich":    has_rich,
+        "total_val":    _s(total_val),
+        "equity_val":   _s(equity_val),
+        "cash":         _s(cash),
+        "total_gl":     _s(total_gl),
+        "total_gl_pct": _s(total_gl_pct),
+        "day_gl":       _s(day_gl),
+        "day_gl_pct":   _s(day_gl_pct),
+        "n_positions":  len(positions),
+        "n_watchlist":  len(load_watchlist()),
+        "has_rich":     has_rich,
     }
+
+PAGES = ["Dashboard", "Scan & Alerts", "Lists & History", "Performance", "Settings"]
+PAGE_ICONS = {
+    "Dashboard":      "◼",
+    "Scan & Alerts":  "🔭",
+    "Lists & History":"📋",
+    "Performance":    "📊",
+    "Settings":       "⚙️",
+}
+
+AI_MODELS = {
+    "Claude Sonnet 4.6 (fast)":   "claude-sonnet-4-6",
+    "Claude Opus 4.8 (powerful)":  "claude-opus-4-8",
+    "Claude Haiku 4.5 (cheap)":    "claude-haiku-4-5-20251001",
+}
+
+if "page" not in st.session_state:
+    st.session_state["page"] = "Dashboard"
+if "ai_model_label" not in st.session_state:
+    st.session_state["ai_model_label"] = "Claude Sonnet 4.6 (fast)"
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
-    st.markdown("## 📈 Stock Advisor")
-    st.markdown("---")
+    snap = _sidebar_snapshot()
+    has_key = bool(os.environ.get("ANTHROPIC_API_KEY"))
+    current_page = st.session_state.get("page", "Dashboard")
 
-    page = st.radio(
-        "Navigate",
-        ["Dashboard", "Portfolio", "Market Scan", "Alerts", "Saved Lists", "History", "Performance", "Settings"],
-        label_visibility="collapsed",
-    )
+    gl_sign  = "+" if snap["total_gl"] >= 0 else ""
+    day_sign = "+" if snap["day_gl"]   >= 0 else ""
+    gl_col   = "#4ade80" if snap["total_gl"] >= 0 else "#f87171"
+    day_col  = "#4ade80" if snap["day_gl"]   >= 0 else "#f87171"
+    ai_dot   = "🟢" if has_key else "🔴"
+    model_short = st.session_state.get("ai_model_label","Claude Sonnet 4.6 (fast)").split(" (")[0]
+    refresh_time = datetime.now().strftime("%-I:%M %p")
 
-    st.markdown("---")
-    if st.button("▶  Run Analysis Now", use_container_width=True):
+    # One big HTML block for the entire sidebar — no Streamlit widgets except buttons
+    st.markdown(f"""
+<style>
+  /* Remove ALL default padding/gap between sidebar elements */
+  section[data-testid="stSidebar"] .stMarkdown {{ margin:0 !important; padding:0 !important; }}
+  section[data-testid="stSidebar"] div[data-testid="stVerticalBlock"] > div {{
+    gap: 0 !important;
+  }}
+  /* Nav buttons */
+  section[data-testid="stSidebar"] div[data-testid="stButton"] > button {{
+    background: transparent !important;
+    border: none !important;
+    border-left: 3px solid transparent !important;
+    border-radius: 0 6px 6px 0 !important;
+    color: #64748b !important;
+    font-size: .82rem !important;
+    font-weight: 400 !important;
+    padding: .28rem .75rem !important;
+    width: 100% !important;
+    text-align: left !important;
+    margin: 0 !important;
+    line-height: 1.35 !important;
+    box-shadow: none !important;
+    min-height: 0 !important;
+    height: auto !important;
+  }}
+  section[data-testid="stSidebar"] div[data-testid="stButton"] > button:hover {{
+    background: rgba(99,102,241,.12) !important;
+    color: #a5b4fc !important;
+    border-left-color: #6366f1 !important;
+  }}
+  /* Active nav item */
+  section[data-testid="stSidebar"] div[data-testid="stButton"] > button.nav-active {{
+    background: linear-gradient(90deg,#1e1b4b,#312e81) !important;
+    border-left: 3px solid #6366f1 !important;
+    color: #a5b4fc !important;
+    font-weight: 700 !important;
+  }}
+  /* Run button */
+  section[data-testid="stSidebar"] div[data-testid="stButton"][data-key="run_btn"] > button {{
+    background: linear-gradient(135deg,#6366f1,#8b5cf6) !important;
+    color: #fff !important;
+    font-weight: 600 !important;
+    border-radius: 8px !important;
+    border-left: none !important;
+    padding: .35rem .75rem !important;
+    font-size: .82rem !important;
+    box-shadow: 0 1px 6px rgba(99,102,241,.3) !important;
+  }}
+  /* Hide selectbox arrow size / shrink */
+  section[data-testid="stSidebar"] div[data-testid="stSelectbox"] {{
+    margin: 0 !important;
+  }}
+  section[data-testid="stSidebar"] div[data-testid="stSelectbox"] label {{
+    font-size: .7rem !important;
+    color: #475569 !important;
+    margin-bottom: 1px !important;
+  }}
+  section[data-testid="stSidebar"] div[data-testid="stSelectbox"] div[data-baseweb="select"] {{
+    font-size: .78rem !important;
+    min-height: 28px !important;
+  }}
+</style>
+
+<div style="padding:.5rem .5rem .2rem .5rem">
+  <div style="font-size:1rem;font-weight:800;color:#f1f5f9;letter-spacing:-.01em">📈 Stock Advisor</div>
+  <div style="font-size:.65rem;color:#475569">AI portfolio advisor</div>
+</div>
+<div style="border-top:1px solid #1e2438;margin:.3rem 0 .2rem 0"></div>
+""", unsafe_allow_html=True)
+
+    # Nav buttons — purely functional st.button, styled by CSS above
+    for _p in PAGES:
+        _icon = PAGE_ICONS.get(_p, "·")
+        _is_active = (_p == current_page)
+        _label = f"{'▶ ' if _is_active else ''}{_icon}  {_p}"
+        if st.button(_label, key=f"nav_{_p}", use_container_width=True):
+            st.session_state["page"] = _p
+            st.rerun()
+
+    page = st.session_state.get("page", "Dashboard")
+
+    st.markdown('<div style="border-top:1px solid #1e2438;margin:.2rem 0"></div>', unsafe_allow_html=True)
+
+    if st.button("▶  Run Analysis Now", use_container_width=True, key="run_btn"):
         st.session_state["run_analysis"] = True
 
-    # ── Portfolio snapshot ─────────────────────────────────────────────────
-    snap = _sidebar_snapshot()
-    st.markdown("---")
-
-    st.metric(
-        label="Portfolio Value",
-        value=f"${snap['total_val']:,.0f}",
-        help=f"${snap['equity_val']:,.0f} equities · ${snap['cash']:,.0f} cash",
-    )
-
+    # ── Portfolio stats — compact HTML rows, no st.metric ────────────────
     if snap["has_rich"]:
-        gl_delta  = f"{'+' if snap['total_gl'] >= 0 else ''}{snap['total_gl_pct']:.1f}%  (${snap['total_gl']:+,.0f})"
-        day_delta = f"{'+' if snap['day_gl'] >= 0 else ''}{snap['day_gl_pct']:.2f}%  (${snap['day_gl']:+,.0f})"
-        st.metric("Total Return",   f"${snap['total_gl']:+,.0f}",  delta=gl_delta)
-        st.metric("Today's Change", f"${snap['day_gl']:+,.0f}",    delta=day_delta)
+        st.markdown(f"""
+<div style="margin:.4rem 0 0 0;font-size:.7rem">
+  <div style="color:#475569;text-transform:uppercase;font-weight:700;letter-spacing:.06em;padding:.35rem .5rem .1rem .5rem">Portfolio</div>
+
+  <div style="display:flex;justify-content:space-between;padding:.18rem .5rem">
+    <span style="color:#64748b">Value</span>
+    <span style="color:#f1f5f9;font-weight:600">${snap['total_val']:,.0f}</span>
+  </div>
+  <div style="display:flex;justify-content:space-between;padding:.18rem .5rem">
+    <span style="color:#64748b">Equities</span>
+    <span style="color:#94a3b8">${snap['equity_val']:,.0f}</span>
+  </div>
+  <div style="display:flex;justify-content:space-between;padding:.18rem .5rem">
+    <span style="color:#64748b">Cash</span>
+    <span style="color:#94a3b8">${snap['cash']:,.0f}</span>
+  </div>
+
+  <div style="border-top:1px solid #1e2438;margin:.25rem .5rem"></div>
+
+  <div style="display:flex;justify-content:space-between;padding:.18rem .5rem">
+    <span style="color:#64748b">Total G/L</span>
+    <span style="color:{gl_col};font-weight:600">{gl_sign}${snap['total_gl']:,.0f} ({gl_sign}{snap['total_gl_pct']:.1f}%)</span>
+  </div>
+  <div style="display:flex;justify-content:space-between;padding:.18rem .5rem">
+    <span style="color:#64748b">Today</span>
+    <span style="color:{day_col};font-weight:600">{day_sign}${snap['day_gl']:,.0f} ({day_sign}{snap['day_gl_pct']:.2f}%)</span>
+  </div>
+
+  <div style="border-top:1px solid #1e2438;margin:.25rem .5rem"></div>
+
+  <div style="display:flex;justify-content:space-between;padding:.18rem .5rem">
+    <span style="color:#64748b">Positions</span>
+    <span style="color:#94a3b8">{snap['n_positions']}</span>
+  </div>
+  <div style="display:flex;justify-content:space-between;padding:.18rem .5rem">
+    <span style="color:#64748b">Watchlist</span>
+    <span style="color:#94a3b8">{snap['n_watchlist']}</span>
+  </div>
+
+  <div style="border-top:1px solid #1e2438;margin:.25rem .5rem"></div>
+  <div style="display:flex;justify-content:space-between;padding:.18rem .5rem">
+    <span style="color:#475569">{ai_dot} {model_short}</span>
+    <span style="color:#334155">{refresh_time}</span>
+  </div>
+</div>
+""", unsafe_allow_html=True)
     else:
-        st.caption("⚠️ Re-import your J.P. Morgan CSV in **Settings** to see live G/L and day change.")
+        st.markdown(f"""
+<div style="margin:.4rem 0;font-size:.7rem;padding:0 .5rem">
+  <div style="color:#475569;text-transform:uppercase;font-weight:700;letter-spacing:.06em;padding:.2rem 0 .1rem 0">Portfolio</div>
+  <div style="display:flex;justify-content:space-between;padding:.15rem 0">
+    <span style="color:#64748b">Value</span><span style="color:#f1f5f9;font-weight:600">${snap['total_val']:,.0f}</span>
+  </div>
+  <div style="display:flex;justify-content:space-between;padding:.15rem 0">
+    <span style="color:#64748b">Positions</span><span style="color:#94a3b8">{snap['n_positions']}</span>
+  </div>
+  <div style="color:#475569;font-size:.65rem;margin-top:.3rem">Import CSV in Settings for G/L</div>
+  <div style="border-top:1px solid #1e2438;margin:.3rem 0"></div>
+  <div style="display:flex;justify-content:space-between;padding:.15rem 0">
+    <span style="color:#475569">{ai_dot} {model_short}</span><span style="color:#334155">{refresh_time}</span>
+  </div>
+</div>
+""", unsafe_allow_html=True)
 
-    st.metric("Holdings", f"{snap['n_positions']} positions", delta=f"{snap['n_watchlist']} on watchlist", delta_color="off")
-
-    # ── API key status ─────────────────────────────────────────────────────
-    has_key = bool(os.environ.get("ANTHROPIC_API_KEY"))
-    st.markdown("---")
-    status_dot = "🟢" if has_key else "🔴"
-    st.caption(f"{status_dot} {'AI active' if has_key else 'No API key — AI off'}")
-    refresh_time = datetime.now().strftime("%-I:%M %p")
-    st.caption(f"Refreshed {refresh_time} · Not financial advice")
+    # ── AI model selector ─────────────────────────────────────────────────
+    selected_model_label = st.selectbox(
+        "AI Model",
+        list(AI_MODELS.keys()),
+        index=list(AI_MODELS.keys()).index(st.session_state["ai_model_label"]),
+        key="model_selector",
+        label_visibility="collapsed",
+    )
+    if selected_model_label != st.session_state["ai_model_label"]:
+        st.session_state["ai_model_label"] = selected_model_label
+    st.session_state["ai_model_id"] = AI_MODELS[selected_model_label]
 
 
 # ── API key warning banner (shown at top of every page) ──────────────────────
@@ -255,6 +459,8 @@ if not os.environ.get("ANTHROPIC_API_KEY"):
 # ── Run analysis if triggered ─────────────────────────────────────────────────
 if st.session_state.get("run_analysis"):
     st.session_state["run_analysis"] = False
+    # Push selected model into env so agents pick it up
+    os.environ["ADVISOR_AI_MODEL"] = st.session_state.get("ai_model_id", "claude-sonnet-4-6")
     with st.spinner("Running analysis…"):
         progress = st.empty()
         def _cb(msg): progress.caption(msg)
@@ -268,7 +474,7 @@ if st.session_state.get("run_analysis"):
 # ══════════════════════════════════════════════════════════════════════════════
 # DASHBOARD
 # ══════════════════════════════════════════════════════════════════════════════
-if page == "Dashboard":
+if page == "Dashboard":  # ── includes Portfolio ──
     st.markdown("# Portfolio Advisor")
     st.markdown("Your watchlist scored, ranked, and sized — you decide when to act.")
 
@@ -289,11 +495,17 @@ if page == "Dashboard":
           <div class="metric-value">{buys}</div>
           <div class="metric-sub">from last run</div></div>""", unsafe_allow_html=True)
     with col3:
-        pv = current_portfolio_value(load_holdings())
+        _snap_kpi = _sidebar_snapshot()
+        pv = _snap_kpi["total_val"]
+        gl_kpi = _snap_kpi["total_gl"]
+        gl_pct_kpi = _snap_kpi["total_gl_pct"]
+        gl_col_kpi = "#16a34a" if gl_kpi >= 0 else "#dc2626"
         st.markdown(f"""<div class="metric-card">
           <div class="metric-label">Portfolio Value</div>
           <div class="metric-value">${pv:,.0f}</div>
-          <div class="metric-sub">incl. cash</div></div>""", unsafe_allow_html=True)
+          <div class="metric-sub" style="color:{gl_col_kpi};font-weight:600">
+            {'+' if gl_kpi>=0 else ''}${gl_kpi:,.0f} ({gl_pct_kpi:+.1f}%) total return
+          </div></div>""", unsafe_allow_html=True)
     with col4:
         vix_val = regime["vix"] if regime else "—"
         regime_lbl = (regime["label"].split(" / ")[0]) if regime else "Run analysis"
@@ -304,78 +516,292 @@ if page == "Dashboard":
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # Portfolio industry pie chart
+    # ── AI Recommendations summary (right under KPI strip) ────────────────────
+    if results:
+        st.markdown('<div class="section-header">AI Recommendations</div>', unsafe_allow_html=True)
+        _rec_rows = []
+        for _r in results:
+            _badge_txt = _r["action"]
+            _rec_rows.append({
+                "Ticker":   _r["symbol"],
+                "Action":   _badge_txt,
+                "Score":    _r["score"],
+                "Entry $":  _r["current_price"],
+                "Target $": _r["target_price"],
+                "Upside %": _r["upside_pct"],
+                "Shares":   _r["suggested_quantity"],
+                "Reason":   (", ".join(_r.get("reasons", [])[:2]) or "—")[:80],
+            })
+        _rec_df = pd.DataFrame(_rec_rows)
+        _action_colors = {
+            "Strong Buy": "#16a34a", "Buy": "#10b981",
+            "Hold": "#f59e0b", "Sell": "#ef4444", "Strong Sell": "#dc2626",
+        }
+        def _color_action(v):
+            c = _action_colors.get(v, "#6b7280")
+            return f"color:{c};font-weight:700"
+        def _color_upside(v):
+            try:
+                fv = float(str(v).replace("%",""))
+                return "color:#16a34a;font-weight:600" if fv > 0 else "color:#ef4444;font-weight:600"
+            except Exception:
+                return ""
+        st.dataframe(
+            _rec_df.style
+                .applymap(_color_action, subset=["Action"])
+                .applymap(_color_upside, subset=["Upside %"])
+                .format({"Score": "{:.0f}", "Entry $": "${:.2f}", "Target $": "${:.2f}",
+                         "Upside %": "{:+.1f}%", "Shares": "{:g}"}, na_rep="—"),
+            use_container_width=True,
+            height=min(420, 60 + len(_rec_rows) * 38),
+        )
+        st.markdown("<br>", unsafe_allow_html=True)
+    else:
+        st.info("Click **▶ Run Analysis Now** in the sidebar to get AI stock recommendations.")
+
+    # ── Portfolio pie charts ──────────────────────────────────────────────────
     _h_pie = load_holdings()
     _positions_pie = _h_pie.get("positions", [])
-    # Build sector → industry lookup from watchlist as fallback
-    _wl_industry = {t["symbol"]: t.get("industry","Other") for t in load_watchlist()}
+
+    # Thematic industry map (ticker → theme)
+    _THEME_MAP = {
+        # AI & Semiconductors
+        "NVDA":"AI & Semiconductors","AMD":"AI & Semiconductors","AMAT":"AI & Semiconductors",
+        "TSM":"AI & Semiconductors","QCOM":"AI & Semiconductors","INTC":"AI & Semiconductors",
+        "AKTS":"AI & Semiconductors","DRAM":"AI & Semiconductors","NBIS":"AI & Semiconductors",
+        # AI Infrastructure & Cloud
+        "ANET":"AI Infra & Cloud","CRWV":"AI Infra & Cloud","ORCL":"AI Infra & Cloud",
+        "MSFT":"AI Infra & Cloud","PLTR":"AI Infra & Cloud","VSNT":"AI Infra & Cloud",
+        "SRAD":"AI Infra & Cloud",
+        # Consumer Tech
+        "AAPL":"Consumer Tech","TSLA":"Consumer Tech","NFLX":"Consumer Tech",
+        "SNAP":"Consumer Tech","PINS":"Consumer Tech","UBER":"Consumer Tech","TTWO":"Consumer Tech",
+        # Financials & Fintech
+        "GS":"Financials & Fintech","BAC":"Financials & Fintech","NU":"Financials & Fintech",
+        "SOFI":"Financials & Fintech","PYPL":"Financials & Fintech","BAM":"Financials & Fintech",
+        "FIG":"Financials & Fintech","OBDC":"Financials & Fintech","YRD":"Financials & Fintech",
+        "IRM":"Financials & Fintech",
+        # Healthcare & Pharma
+        "UNH":"Healthcare & Pharma","NVO":"Healthcare & Pharma",
+        "TAK":"Healthcare & Pharma","ABT":"Healthcare & Pharma",
+        # Energy & Nuclear
+        "CEG":"Energy & Utilities","VST":"Energy & Utilities","SMR":"Energy & Utilities",
+        "TE":"Energy & Utilities",
+        # Consumer Staples & Retail
+        "COST":"Consumer & Retail","PG":"Consumer & Retail","KHC":"Consumer & Retail",
+        "MGM":"Consumer & Retail","CCL":"Consumer & Retail","VAC":"Consumer & Retail",
+        # Travel & Transport
+        "UAL":"Travel & Transport","DAL":"Travel & Transport","CMCSA":"Media & Telecom",
+        "DIS":"Media & Telecom",
+        # Defense & Space
+        "KTOS":"Defense & Space","RKLB":"Defense & Space",
+        # International
+        "LVMUY":"International","TM":"International","SKM":"International",
+        "MUFG":"International","HNHPF":"International","FLGB":"International",
+        "FLJP":"International","EWJV":"International","FLCH":"International",
+        "ALMR":"International","USAR":"International","FLY":"International",
+    }
+
+    def _best_val(p):
+        cv = _safe_float(p.get("current_value"))
+        if cv > 0: return cv
+        cp = _safe_float(p.get("current_price"))
+        qty = _safe_float(p.get("quantity"))
+        if cp > 0: return cp * qty
+        return _safe_float(p.get("cost_basis")) * qty
 
     if _positions_pie:
-        _pie_rows = []
-        for _p in _positions_pie:
-            _qty = float(_p.get("quantity", 0) or 0)
-            _cb  = float(_p.get("cost_basis", 0) or 0)
-            _cv  = _p.get("current_value")
-            _cp  = _p.get("current_price")
-            # Best available value estimate
-            if _cv is not None and float(_cv) > 0:
-                _v = float(_cv)
-            elif _cp is not None and float(_cp) > 0:
-                _v = float(_cp) * _qty
-            elif _cb > 0:
-                _v = _cb * _qty
-            else:
-                _v = _qty  # at minimum count as 1 unit so it shows up
-
-            # Best available sector: from broker import, then watchlist, then "Other"
-            _sector = ((_p.get("sector") or "").strip()
-                       or _wl_industry.get(_p["symbol"], "")
-                       or "Other")
-            if _sector == "":
-                _sector = "Other"
-            _pie_rows.append({"sector": _sector, "value": _v, "sym": _p["symbol"]})
-
-        _pie_df = pd.DataFrame(_pie_rows).groupby("sector")["value"].sum().reset_index()
-        _pie_df = _pie_df[_pie_df["value"] > 0].sort_values("value", ascending=False)
-
-        _COLORS = [
+        _PIE_COLORS = [
             "#6366f1","#8b5cf6","#3b82f6","#10b981","#f59e0b",
             "#ef4444","#ec4899","#14b8a6","#f97316","#84cc16",
             "#06b6d4","#a78bfa","#fb923c","#4ade80","#e879f9",
         ]
 
-        _pie_fig = go.Figure(go.Pie(
-            labels=_pie_df["sector"],
-            values=_pie_df["value"],
-            hole=0.5,
-            marker_colors=_COLORS[:len(_pie_df)],
-            textinfo="label+percent",
-            textfont_size=11,
-            hovertemplate="<b>%{label}</b><br>$%{value:,.0f}  ·  %{percent}<extra></extra>",
-            direction="clockwise",
-            sort=True,
-        ))
-        _total_eq = _pie_df["value"].sum()
-        _pie_fig.add_annotation(
-            text=f"<b>${_total_eq:,.0f}</b><br><span style='font-size:10px;color:#6b7280'>equities</span>",
-            x=0.5, y=0.5, showarrow=False, font_size=13, align="center",
-        )
-        _pie_fig.update_layout(
-            height=300,
-            margin=dict(l=0, r=10, t=10, b=10),
-            paper_bgcolor="rgba(0,0,0,0)",
-            showlegend=True,
-            legend=dict(orientation="v", x=1.02, y=0.5, font=dict(size=11), bgcolor="rgba(0,0,0,0)"),
-        )
+        def _make_donut(df_in, label_col, val_col, center_text):
+            df_in = df_in[df_in[val_col] > 0].sort_values(val_col, ascending=False)
+            fig = go.Figure(go.Pie(
+                labels=df_in[label_col],
+                values=df_in[val_col],
+                customdata=df_in[label_col],   # carries label into selection points
+                hole=0.54,
+                marker_colors=_PIE_COLORS[:len(df_in)],
+                textinfo="label+percent",
+                textfont_size=10,
+                hovertemplate="<b>%{label}</b><br>$%{value:,.0f} · %{percent}<br><i>Click to see stocks</i><extra></extra>",
+                sort=True, direction="clockwise",
+            ))
+            fig.add_annotation(
+                text=center_text, x=0.5, y=0.5,
+                showarrow=False, font_size=12, align="center",
+            )
+            fig.update_layout(
+                height=320, margin=dict(l=10, r=10, t=30, b=10),
+                paper_bgcolor="rgba(0,0,0,0)",
+                showlegend=True,
+                legend=dict(
+                    orientation="v", x=1.01, y=0.5,
+                    font=dict(size=10), bgcolor="rgba(0,0,0,0)",
+                    itemsizing="constant",
+                ),
+            )
+            return fig
 
-        _pie_left, _pie_right = st.columns([1.2, 1.8])
-        with _pie_left:
-            st.markdown('<div class="section-header">Portfolio by Industry</div>', unsafe_allow_html=True)
-            # Show note if values are approximate (no broker import)
-            _has_rich_pie = any(p.get("current_value") for p in _positions_pie)
-            if not _has_rich_pie:
-                st.caption("⚠️ Using cost basis — re-import CSV for live values & sectors")
-            st.plotly_chart(_pie_fig, use_container_width=True, config={"displayModeBar": False})
+        # Pie 1 — JPM strategy (US Large Cap / International / etc.)
+        _rows1 = [{"sector": (p.get("sector") or "Other"), "value": _best_val(p)} for p in _positions_pie]
+        _df1 = pd.DataFrame(_rows1).groupby("sector")["value"].sum().reset_index()
+        _total1 = _df1["value"].sum()
+
+        # Pie 2 — Thematic industry
+        _rows2 = [{"theme": _THEME_MAP.get(p["symbol"], "Other"), "value": _best_val(p)} for p in _positions_pie]
+        _df2 = pd.DataFrame(_rows2).groupby("theme")["value"].sum().reset_index()
+
+        _total2 = _df2["value"].sum()
+        # Build lookup: sector/theme → list of positions
+        _sec_to_pos  = {}
+        for _p in _positions_pie:
+            _s = (_p.get("sector") or "Other").strip() or "Other"
+            _sec_to_pos.setdefault(_s, []).append(_p)
+        _theme_to_pos = {}
+        for _p in _positions_pie:
+            _t = _THEME_MAP.get(_p["symbol"], "Other")
+            _theme_to_pos.setdefault(_t, []).append(_p)
+
+        # ── Init session state for pie click selections ───────────────────────
+        if "pie_strat_sel" not in st.session_state:
+            st.session_state["pie_strat_sel"] = []
+        if "pie_theme_sel" not in st.session_state:
+            st.session_state["pie_theme_sel"] = []
+
+        _pc1, _pc2 = st.columns(2)
+        with _pc1:
+            st.markdown("""
+            <div class="section-header">Portfolio by Strategy</div>
+            <div style="font-size:.78rem;color:#94a3b8;margin:-0.8rem 0 .5rem 0">
+              JPMorgan asset class — <b>click any slice</b> to filter
+            </div>""", unsafe_allow_html=True)
+            _ev1 = st.plotly_chart(
+                _make_donut(_df1, "sector", "value", f"<b>${_total1:,.0f}</b><br><span style='font-size:9px;color:#94a3b8'>equities</span>"),
+                use_container_width=True, config={"displayModeBar": False},
+                on_select="rerun", selection_mode="points", key="pie_strategy",
+            )
+            # Sync pie click → multiselect
+            try:
+                _pts1 = _ev1.selection.points if hasattr(_ev1, "selection") else []
+            except Exception:
+                _pts1 = []
+            if _pts1:
+                _lbl1 = (_pts1[0].get("label") or _pts1[0].get("text") or "").strip()
+                if _lbl1 and _lbl1 in _sec_to_pos:
+                    if _lbl1 not in st.session_state["pie_strat_sel"]:
+                        st.session_state["pie_strat_sel"] = [_lbl1]
+                    else:
+                        # clicking same slice again toggles it off
+                        st.session_state["pie_strat_sel"] = []
+
+        with _pc2:
+            st.markdown("""
+            <div class="section-header">Portfolio by Theme</div>
+            <div style="font-size:.78rem;color:#94a3b8;margin:-0.8rem 0 .5rem 0">
+              Industry theme (AI, Semis, Fintech…) — <b>click any slice</b> to filter
+            </div>""", unsafe_allow_html=True)
+            _ev2 = st.plotly_chart(
+                _make_donut(_df2, "theme", "value", f"<b>${_total2:,.0f}</b><br><span style='font-size:9px;color:#94a3b8'>equities</span>"),
+                use_container_width=True, config={"displayModeBar": False},
+                on_select="rerun", selection_mode="points", key="pie_theme",
+            )
+            try:
+                _pts2 = _ev2.selection.points if hasattr(_ev2, "selection") else []
+            except Exception:
+                _pts2 = []
+            if _pts2:
+                _lbl2 = (_pts2[0].get("label") or _pts2[0].get("text") or "").strip()
+                if _lbl2 and _lbl2 in _theme_to_pos:
+                    if _lbl2 not in st.session_state["pie_theme_sel"]:
+                        st.session_state["pie_theme_sel"] = [_lbl2]
+                    else:
+                        st.session_state["pie_theme_sel"] = []
+
+        # ── Multi-select filters (synced with pie clicks) ──────────────────────
+        st.markdown('<div class="section-header" style="margin-top:.5rem">Explore Holdings</div>', unsafe_allow_html=True)
+        st.markdown('<div style="font-size:.78rem;color:#94a3b8;margin-bottom:.5rem">Click a pie slice above or pick from the dropdowns below — select multiple to combine</div>', unsafe_allow_html=True)
+        _drillcols = st.columns(2)
+
+        with _drillcols[0]:
+            # Write session_state key before widget so widget picks it up
+            _chosen_strategies = st.multiselect(
+                "Filter by JPM Strategy",
+                options=sorted(_sec_to_pos.keys()),
+                default=st.session_state["pie_strat_sel"],
+                key="ms_strategy",
+            )
+            st.session_state["pie_strat_sel"] = _chosen_strategies
+
+        with _drillcols[1]:
+            _chosen_themes = st.multiselect(
+                "Filter by Industry Theme",
+                options=sorted(_theme_to_pos.keys()),
+                default=st.session_state["pie_theme_sel"],
+                key="ms_theme",
+            )
+            st.session_state["pie_theme_sel"] = _chosen_themes
+
+        def _drill_table(matched, group_label, clicked):
+            total_val_slice = sum(_best_val(p) for p in matched)
+            total_gl_slice  = sum(_safe_float(p.get("unrealized_gl")) for p in matched)
+            gl_col_s = "#16a34a" if total_gl_slice >= 0 else "#ef4444"
+            st.markdown(f"""
+            <div style="background:linear-gradient(135deg,#f8fafc,#f1f5f9);
+              border:1px solid #e2e8f0;border-radius:12px;padding:.9rem 1.2rem;margin:.5rem 0 .8rem 0">
+              <div style="font-size:.72rem;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.07em">
+                {group_label}
+              </div>
+              <div style="font-size:1.1rem;font-weight:700;color:#0f172a;margin:.2rem 0">{clicked}</div>
+              <div style="display:flex;gap:2rem;margin-top:.3rem;font-size:.83rem">
+                <span><b style="color:#0f172a">{len(matched)}</b> <span style="color:#64748b">positions</span></span>
+                <span><b style="color:#0f172a">${total_val_slice:,.0f}</b> <span style="color:#64748b">market value</span></span>
+                <span><b style="color:{gl_col_s}">{'+' if total_gl_slice>=0 else ''}${total_gl_slice:,.0f}</b> <span style="color:#64748b">unrealized G/L</span></span>
+              </div>
+            </div>""", unsafe_allow_html=True)
+            drill_rows = []
+            for _dp in matched:
+                drill_rows.append({
+                    "Ticker":      _dp["symbol"],
+                    "Description": (_dp.get("description") or "")[:32],
+                    "Qty":         _dp.get("quantity"),
+                    "Price":       _dp.get("current_price"),
+                    "Value":       _best_val(_dp),
+                    "G/L $":       _dp.get("unrealized_gl"),
+                    "G/L %":       _dp.get("unrealized_gl_pct"),
+                    "Day %":       _dp.get("day_change_pct"),
+                })
+            _ddf = pd.DataFrame(drill_rows).sort_values("Value", ascending=False)
+            def _gc(v):
+                if v is None or (isinstance(v, float) and math.isnan(v)): return ""
+                return "color:#16a34a;font-weight:600" if v > 0 else "color:#ef4444;font-weight:600"
+            st.dataframe(
+                _ddf.style
+                    .applymap(_gc, subset=["G/L $","G/L %","Day %"])
+                    .format({"Qty":"{:g}","Price":"${:,.2f}","Value":"${:,.0f}",
+                             "G/L $":"${:+,.0f}","G/L %":"{:+.1f}%","Day %":"{:+.2f}%"}, na_rep="—"),
+                use_container_width=True, height=min(350, 60 + len(matched)*38),
+            )
+
+        # Merge all selected positions across both filters
+        _combined_positions = []
+        _combined_labels = []
+        for _s in _chosen_strategies:
+            for _p in _sec_to_pos.get(_s, []):
+                if _p not in _combined_positions:
+                    _combined_positions.append(_p)
+            _combined_labels.append(_s)
+        for _t in _chosen_themes:
+            for _p in _theme_to_pos.get(_t, []):
+                if _p not in _combined_positions:
+                    _combined_positions.append(_p)
+            _combined_labels.append(_t)
+
+        if _combined_positions:
+            _drill_table(_combined_positions, "Holdings in selected groups", " + ".join(_combined_labels))
 
     # Regime banner
     if regime:
@@ -392,11 +818,78 @@ if page == "Dashboard":
         </div>""", unsafe_allow_html=True)
         st.markdown("<br>", unsafe_allow_html=True)
 
+    # ── Watchlist overview ────────────────────────────────────────────────────
+    _wl_all = load_watchlist()
+    with st.expander(f"Your Watchlist ({len(_wl_all)} stocks being tracked)", expanded=False):
+        st.markdown("""<div style="font-size:.8rem;color:#64748b;margin-bottom:.6rem">
+          These are the stocks the AI scores every time you run an analysis. The first 8 were added manually;
+          the rest were auto-imported from your J.P. Morgan CSV. Industry labels come from JPM's strategy
+          categories — run an analysis to get AI scores for all of them.
+        </div>""", unsafe_allow_html=True)
+        _wl_by_industry = {}
+        for _wt in _wl_all:
+            _ind = (_wt.get("industry") or "Uncategorized").strip() or "Uncategorized"
+            _wl_by_industry.setdefault(_ind, []).append(_wt["symbol"])
+        for _ind_name in sorted(_wl_by_industry.keys()):
+            _syms = sorted(_wl_by_industry[_ind_name])
+            st.markdown(
+                f"**{_ind_name}** ({len(_syms)})  \n"
+                + "  ".join(f"`{s}`" for s in _syms),
+                unsafe_allow_html=False
+            )
+
     if not results:
-        st.info("Click **▶ Run Analysis Now** in the sidebar to score your watchlist.")
         st.stop()
 
-    st.markdown('<div class="section-header">Ranked Suggestions</div>', unsafe_allow_html=True)
+    # ── Three-factor methodology card ────────────────────────────────────────
+    _regime_now = regime or {}
+    _fw = int(_regime_now.get("fund", 0.35) * 100)
+    _tw = int(_regime_now.get("tech", 0.35) * 100)
+    _sw = int(_regime_now.get("sent", 0.30) * 100)
+    st.markdown(f"""
+    <div style="background:linear-gradient(135deg,#f0f4ff,#faf5ff);border:1px solid #c7d2fe;
+      border-radius:12px;padding:1rem 1.4rem;margin:.5rem 0 1rem 0">
+      <div style="font-size:.72rem;font-weight:700;color:#6366f1;text-transform:uppercase;
+        letter-spacing:.08em;margin-bottom:.5rem">How Stocks Are Scored</div>
+      <div style="display:flex;gap:1.5rem;flex-wrap:wrap">
+        <div style="flex:1;min-width:180px">
+          <div style="font-weight:700;color:#0f172a;font-size:.9rem">
+            ⬡ Quantitative Performance
+            <span style="background:#6366f1;color:#fff;border-radius:99px;
+              padding:1px 8px;font-size:.72rem;margin-left:.4rem">{_fw}%</span>
+          </div>
+          <div style="font-size:.78rem;color:#64748b;margin-top:.2rem">
+            P/E ratio · PEG · Revenue growth · Profit margins · Debt/equity
+          </div>
+        </div>
+        <div style="flex:1;min-width:180px">
+          <div style="font-weight:700;color:#0f172a;font-size:.9rem">
+            ⬡ Trend &amp; Momentum
+            <span style="background:#f59e0b;color:#fff;border-radius:99px;
+              padding:1px 8px;font-size:.72rem;margin-left:.4rem">{_tw}%</span>
+          </div>
+          <div style="font-size:.78rem;color:#64748b;margin-top:.2rem">
+            RSI · MACD crossover · Price vs 50/200-day SMA · Volume spikes
+          </div>
+        </div>
+        <div style="flex:1;min-width:180px">
+          <div style="font-weight:700;color:#0f172a;font-size:.9rem">
+            ⬡ Market Sentiment
+            <span style="background:#10b981;color:#fff;border-radius:99px;
+              padding:1px 8px;font-size:.72rem;margin-left:.4rem">{_sw}%</span>
+          </div>
+          <div style="font-size:.78rem;color:#64748b;margin-top:.2rem">
+            AI reads recent news headlines · scored 0–100 bearish→bullish
+          </div>
+        </div>
+      </div>
+      <div style="font-size:.75rem;color:#94a3b8;margin-top:.5rem">
+        Weights shift automatically with market regime (VIX + AI classification).
+        In volatile markets, Sentiment gets more weight; in calm markets, Fundamentals lead.
+      </div>
+    </div>""", unsafe_allow_html=True)
+
+    st.markdown('<div class="section-header">Ranked Suggestions (Detail)</div>', unsafe_allow_html=True)
     saved_symbols = {p["symbol"] for p in get_saved_picks()}
     wl_industries = {t["symbol"]: t.get("industry","Misc") for t in load_watchlist()}
 
@@ -458,9 +951,40 @@ if page == "Dashboard":
             with c8:
                 sub1, sub2 = st.columns(2)
                 with sub1:
-                    with st.expander("Why"):
-                        for reason in r.get("reasons", []):
-                            st.markdown(f"• {reason}")
+                    with st.expander("Analysis"):
+                        # Factor scores
+                        _fs = r.get("fund_score", 0)
+                        _ts = r.get("tech_score", 0)
+                        _ss = r.get("sent_score", 0)
+                        st.markdown(
+                            f"<div style='font-size:.75rem;margin-bottom:.4rem'>"
+                            f"<span style='color:#6366f1;font-weight:700'>⬡ Fundamentals</span> "
+                            f"<b>{_fs}/100</b> &nbsp; "
+                            f"<span style='color:#f59e0b;font-weight:700'>⬡ Technicals</span> "
+                            f"<b>{_ts}/100</b> &nbsp; "
+                            f"<span style='color:#10b981;font-weight:700'>⬡ Sentiment</span> "
+                            f"<b>{_ss}/100</b></div>",
+                            unsafe_allow_html=True,
+                        )
+                        # Reasons grouped by factor
+                        _fund_r = [x for x in r.get("reasons", []) if any(k in x.lower() for k in ("p/e","peg","revenue","margin","debt","valuation","profit","growth"))]
+                        _tech_r = [x for x in r.get("reasons", []) if any(k in x.lower() for k in ("rsi","macd","sma","volume","trend","crossover","oversold","overbought"))]
+                        _sent_r = [x for x in r.get("reasons", []) if x not in _fund_r and x not in _tech_r]
+                        if _fund_r:
+                            st.markdown("**Quantitative Performance**")
+                            for _rr in _fund_r: st.markdown(f"  • {_rr}")
+                        if _tech_r:
+                            st.markdown("**Trend & Momentum**")
+                            for _rr in _tech_r: st.markdown(f"  • {_rr}")
+                        if _sent_r:
+                            st.markdown("**Market Sentiment**")
+                            for _rr in _sent_r: st.markdown(f"  • {_rr}")
+                        # News headlines
+                        _hl = r.get("headlines", [])
+                        if _hl:
+                            st.markdown("**Recent News**")
+                            for _h in _hl[:4]:
+                                st.markdown(f"  📰 {_h}")
                 with sub2:
                     already_saved = r["symbol"] in saved_symbols
                     btn_label = "★" if already_saved else "☆ Save"
@@ -511,11 +1035,9 @@ if page == "Dashboard":
         st.plotly_chart(fig2, use_container_width=True)
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# PORTFOLIO
-# ══════════════════════════════════════════════════════════════════════════════
-elif page == "Portfolio":
-    st.markdown("# My Portfolio")
+    # ── Portfolio section (bottom of Dashboard) ───────────────────────────────
+    st.markdown("---")
+    st.markdown("## My Portfolio")
     st.markdown("Imported from J.P. Morgan · all figures from your last CSV export.")
 
     h = load_holdings()
@@ -781,162 +1303,222 @@ elif page == "Portfolio":
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# MARKET SCAN
+# SCAN & ALERTS
 # ══════════════════════════════════════════════════════════════════════════════
-elif page == "Market Scan":
-    st.markdown("# Market Scan")
-    st.markdown("Two-pass S&P 500 scan — cheap fundamentals+technicals across all ~500 tickers, "
-                "then full scoring (incl. sentiment) on the top shortlist only.")
+elif page == "Scan & Alerts":
+    scan_tab, alert_tab = st.tabs(["🔭  Market Scan", "🔔  Alerts"])
 
-    from scripts.market_scan import scan_market
-
-    col_a, col_b = st.columns([1, 3])
-    with col_a:
-        shortlist_n = st.number_input("Shortlist size", min_value=5, max_value=50, value=25, step=5)
-    with col_b:
-        st.markdown("<br>", unsafe_allow_html=True)
-        run_scan = st.button("🔍  Run Market Scan")
-
-    if run_scan:
-        with st.spinner("Scanning S&P 500… ~3 minutes"):
-            progress = st.empty()
-            def _cb(msg): progress.caption(msg)
-            full_results, pass1_results, regime = scan_market(shortlist_size=int(shortlist_n), status_cb=_cb)
-            progress.empty()
-        st.session_state["scan_full"] = full_results
-        st.session_state["scan_pass1"] = pass1_results
-        st.session_state["scan_regime"] = regime
-        st.success(f"Scanned {len(pass1_results)} tickers — top {len(full_results)} fully scored.")
-
-    scan_full  = st.session_state.get("scan_full")
-    scan_pass1 = st.session_state.get("scan_pass1")
-    scan_regime = st.session_state.get("scan_regime")
-
-    if not scan_full:
-        st.info("Click **Run Market Scan** to discover ideas beyond your watchlist.")
-    else:
-        if scan_regime:
-            st.caption(f"Regime: **{scan_regime['label']}** — {scan_regime.get('rationale','')}")
-        st.markdown('<div class="section-header">Top Shortlist (fully scored)</div>', unsafe_allow_html=True)
-        df_full = pd.DataFrame(scan_full)[[
-            "symbol","industry","action","score","current_price","target_price","upside_pct","suggested_quantity"
-        ]]
-        df_full.columns = ["Symbol","Industry","Action","Score","Price","Target","Upside %","Suggested Qty"]
-        st.dataframe(df_full, use_container_width=True, height=420)
-
-        with st.expander(f"Pass 1: all {len(scan_pass1)} tickers (cheap score only)"):
-            df_p1 = pd.DataFrame(scan_pass1)[["symbol","industry","fund_score","tech_score","cheap_score"]]
-            df_p1.columns = ["Symbol","Industry","Fund","Tech","Cheap Score"]
-            st.dataframe(df_p1, use_container_width=True, height=400)
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# ALERTS
-# ══════════════════════════════════════════════════════════════════════════════
-elif page == "Alerts":
-    st.markdown("# Real-Time Alerts")
-    st.markdown("Desktop notifications fire when a stock flips to Strong Buy, hits its target, "
-                "or makes a big intraday move (≥5%). Runs every 5 min during market hours (9:30–16:00 ET).")
-
-    st.code("python3 scripts/alert_poller.py", language="bash")
-
-    st.markdown('<div class="section-header">Recent Alerts</div>', unsafe_allow_html=True)
-    alerts = get_recent_alerts(limit=50)
-    if not alerts:
-        st.info("No alerts fired yet. Start the poller or use the one-off check below.")
-    else:
-        df_alerts = pd.DataFrame(alerts)[["fired_at","symbol","alert_type","message"]]
-        df_alerts.columns = ["Fired At (UTC)","Symbol","Type","Message"]
-        st.dataframe(df_alerts, use_container_width=True, height=400)
-
-    if st.button("⚡ Check triggers now (one-off)"):
-        from agents.alerts import check_triggers
-        from db.store import log_alert
-        results = st.session_state.get("results")
-        if not results:
-            st.warning("Run an analysis on the Dashboard first.")
-        else:
-            fired = sum(
-                1 for a in check_triggers(results, {})
-                if log_alert(a["symbol"], a["type"], a["message"], a["dedup_key"])
-            )
-            st.success(f"{fired} new alert(s) logged.")
-            st.rerun()
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# SAVED LISTS
-# ══════════════════════════════════════════════════════════════════════════════
-elif page == "Saved Lists":
-    st.markdown("# Saved Picks")
-    st.markdown("Bookmarked stocks organized by industry.")
-
-    picks = get_saved_picks()
-
-    with st.form("add_pick", clear_on_submit=True):
-        ca, cb, cc, cd = st.columns([1.5, 1.5, 2.5, 1])
-        with ca: new_sym = st.text_input("Ticker", placeholder="AMZN")
-        with cb: new_ind = st.selectbox("Industry", INDUSTRIES)
-        with cc: new_note = st.text_input("Note (optional)", placeholder="AI moat play")
-        with cd:
+    with scan_tab:
+        st.markdown("### 🔭 Market Scan")
+        st.markdown("""
+        <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;
+          padding:.7rem 1rem;margin-bottom:1rem;font-size:.85rem;color:#475569">
+          <b style="color:#0f172a">What this does:</b> Scans all ~500 S&P 500 stocks in two passes —
+          first a fast fundamentals + technicals screen on every ticker, then deep AI scoring
+          (including sentiment) on the top shortlist. Use this to discover buy ideas <i>outside</i>
+          your watchlist. Results show action signal, score, entry price, target, and suggested quantity.
+        </div>""", unsafe_allow_html=True)
+        from scripts.market_scan import scan_market
+        col_a, col_b = st.columns([1, 3])
+        with col_a:
+            shortlist_n = st.number_input("Shortlist size", min_value=5, max_value=50, value=25, step=5)
+        with col_b:
             st.markdown("<br>", unsafe_allow_html=True)
-            submitted = st.form_submit_button("Add")
-        if submitted and new_sym:
-            save_pick(new_sym.upper(), new_ind, new_note)
-            st.rerun()
+            run_scan = st.button("🔍  Run Market Scan")
 
-    if not picks:
-        st.info("No saved picks yet. Save stocks from the Dashboard or add them above.")
-    else:
-        for ind in sorted(set(p["industry"] for p in picks)):
-            st.markdown(f'<div class="section-header">{ind}</div>', unsafe_allow_html=True)
-            for p in [x for x in picks if x["industry"] == ind]:
-                c1, c2, c3 = st.columns([1.5, 4, 1])
-                with c1: st.markdown(f"**{p['symbol']}**")
-                with c2: st.markdown(f"<small style='color:#6b7280'>{p['note'] or '—'} · {p['saved_at'][:10]}</small>", unsafe_allow_html=True)
-                with c3:
-                    if st.button("Remove", key=f"rm_{p['symbol']}"):
-                        remove_pick(p["symbol"]); st.rerun()
+        if run_scan:
+            with st.spinner("Scanning S&P 500… fetching data in parallel, please wait ~60s"):
+                progress = st.empty()
+                def _cb(msg): progress.caption(msg)
+                full_results, pass1_results, regime = scan_market(shortlist_size=int(shortlist_n), status_cb=_cb)
+                progress.empty()
+            st.session_state["scan_full"] = full_results
+            st.session_state["scan_pass1"] = pass1_results
+            st.session_state["scan_regime"] = regime
+            st.session_state["scan_chat"] = []
+            st.success(f"Scanned {len(pass1_results)} tickers — top {len(full_results)} fully scored.")
+
+        scan_full   = st.session_state.get("scan_full")
+        scan_pass1  = st.session_state.get("scan_pass1")
+        scan_regime = st.session_state.get("scan_regime")
+
+        if not scan_full:
+            st.info("Click **Run Market Scan** to discover ideas beyond your watchlist.")
+        else:
+            if scan_regime:
+                st.caption(f"Regime: **{scan_regime['label']}** — {scan_regime.get('rationale','')}")
+            st.markdown('<div class="section-header">Top Shortlist (fully scored)</div>', unsafe_allow_html=True)
+            df_full = pd.DataFrame(scan_full)[["symbol","industry","action","score","current_price","target_price","upside_pct","suggested_quantity"]]
+            df_full.columns = ["Symbol","Industry","Action","Score","Price","Target","Upside %","Suggested Qty"]
+            st.dataframe(df_full, use_container_width=True, height=400)
+            with st.expander(f"Pass 1: all {len(scan_pass1)} tickers (cheap score only)"):
+                df_p1 = pd.DataFrame(scan_pass1)[["symbol","industry","fund_score","tech_score","cheap_score"]]
+                df_p1.columns = ["Symbol","Industry","Fund","Tech","Cheap Score"]
+                st.dataframe(df_p1, use_container_width=True, height=380)
+
+            # ── Ask AI about the scan results ──────────────────────────────
+            st.markdown('<div class="section-header" style="margin-top:1rem">Ask AI About These Results</div>', unsafe_allow_html=True)
+            st.markdown('<div style="font-size:.8rem;color:#64748b;margin-bottom:.5rem">Ask anything about the scan — e.g. "Which AI stocks look strongest?", "Show me value plays under $50", "Why is NVDA ranked high?"</div>', unsafe_allow_html=True)
+
+            if "scan_chat" not in st.session_state:
+                st.session_state["scan_chat"] = []
+
+            # Display previous chat
+            for _msg in st.session_state["scan_chat"]:
+                with st.chat_message(_msg["role"]):
+                    st.markdown(_msg["content"])
+
+            _q = st.chat_input("Ask about the market scan results…", key="scan_chat_input")
+            if _q:
+                st.session_state["scan_chat"].append({"role": "user", "content": _q})
+                with st.chat_message("user"):
+                    st.markdown(_q)
+
+                # Build context from scan results
+                _scan_summary = "\n".join(
+                    f"{r['symbol']} ({r.get('industry','?')}): {r['action']}, score={r['score']}, "
+                    f"price=${r['current_price']}, target=${r['target_price']}, upside={r['upside_pct']}%, "
+                    f"reasons: {'; '.join(r.get('reasons', [])[:2])}"
+                    for r in (scan_full or [])[:30]
+                )
+                _regime_ctx = f"Market regime: {scan_regime['label']}. {scan_regime.get('rationale','')}" if scan_regime else ""
+
+                _sys_prompt = f"""You are a concise financial analyst assistant. The user just ran a stock market scan.
+Here are the top results:
+{_scan_summary}
+
+{_regime_ctx}
+
+Answer the user's question directly and concisely based on this data. Keep it under 200 words unless asked for more detail."""
+
+                try:
+                    from anthropic import Anthropic as _Anthropic
+                    _ac = _Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+                    _chat_model = st.session_state.get("ai_model_id", "claude-sonnet-4-6")
+                    _msgs = [{"role": m["role"], "content": m["content"]}
+                             for m in st.session_state["scan_chat"]]
+                    _resp = _ac.messages.create(
+                        model=_chat_model, max_tokens=600,
+                        system=_sys_prompt, messages=_msgs,
+                    )
+                    _answer = _resp.content[0].text
+                except Exception as _e:
+                    _answer = f"Could not get AI response: {_e}"
+
+                st.session_state["scan_chat"].append({"role": "assistant", "content": _answer})
+                with st.chat_message("assistant"):
+                    st.markdown(_answer)
+
+    with alert_tab:
+        st.markdown("### 🔔 Alerts")
+        st.markdown("""
+        <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;
+          padding:.7rem 1rem;margin-bottom:1rem;font-size:.85rem;color:#475569">
+          <b style="color:#0f172a">What this does:</b> Monitors your watchlist every 5 minutes
+          during market hours (9:30–16:00 ET) and fires a macOS desktop notification when:
+          a stock flips to <b>Strong Buy</b>, a position <b>hits its price target</b>,
+          or any stock makes an <b>intraday move ≥5%</b>. Alerts are deduplicated daily so
+          you won't get spammed. Run the poller command below in a separate terminal to start it.
+        </div>""", unsafe_allow_html=True)
+        st.code("python3 scripts/alert_poller.py", language="bash")
+        st.markdown('<div class="section-header">Recent Alerts</div>', unsafe_allow_html=True)
+        alerts = get_recent_alerts(limit=50)
+        if not alerts:
+            st.info("No alerts fired yet.")
+        else:
+            df_alerts = pd.DataFrame(alerts)[["fired_at","symbol","alert_type","message"]]
+            df_alerts.columns = ["Fired At (UTC)","Symbol","Type","Message"]
+            st.dataframe(df_alerts, use_container_width=True, height=380)
+        if st.button("⚡ Check triggers now (one-off)"):
+            from agents.alerts import check_triggers
+            from db.store import log_alert
+            _res = st.session_state.get("results")
+            if not _res:
+                st.warning("Run an analysis on Dashboard first.")
+            else:
+                fired = sum(1 for a in check_triggers(_res, {})
+                            if log_alert(a["symbol"], a["type"], a["message"], a["dedup_key"]))
+                st.success(f"{fired} new alert(s) logged.")
+                st.rerun()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# HISTORY
+# LISTS & HISTORY
 # ══════════════════════════════════════════════════════════════════════════════
-elif page == "History":
-    st.markdown("# Suggestion History")
-    st.markdown("Full log of every scored suggestion.")
+elif page == "Lists & History":
+    list_tab, hist_tab = st.tabs(["📋  Saved Picks", "🕐  History"])
 
-    sym_filter = (st.text_input("Filter by symbol", placeholder="AAPL").upper() or None)
-    history = get_suggestion_history(symbol=sym_filter, limit=100)
+    with list_tab:
+        st.markdown("### 📋 Saved Picks")
+        st.markdown("""
+        <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;
+          padding:.7rem 1rem;margin-bottom:1rem;font-size:.85rem;color:#475569">
+          <b style="color:#0f172a">What this does:</b> Your personal watchlist of stocks you've
+          bookmarked for future research. Organize them by industry (AI, Financials, Healthcare…),
+          add a personal note for why you're tracking it, and remove picks you're no longer
+          interested in. Stocks can be saved here directly from the Dashboard suggestion cards.
+        </div>""", unsafe_allow_html=True)
+        picks = get_saved_picks()
+        with st.form("add_pick", clear_on_submit=True):
+            ca, cb, cc, cd = st.columns([1.5, 1.5, 2.5, 1])
+            with ca: new_sym  = st.text_input("Ticker", placeholder="AMZN")
+            with cb: new_ind  = st.selectbox("Industry", INDUSTRIES)
+            with cc: new_note = st.text_input("Note (optional)", placeholder="AI moat play")
+            with cd:
+                st.markdown("<br>", unsafe_allow_html=True)
+                submitted = st.form_submit_button("Add")
+            if submitted and new_sym:
+                save_pick(new_sym.upper(), new_ind, new_note)
+                st.rerun()
+        if not picks:
+            st.info("No saved picks yet. Save stocks from the Dashboard or add them above.")
+        else:
+            for ind in sorted(set(p["industry"] for p in picks)):
+                st.markdown(f'<div class="section-header">{ind}</div>', unsafe_allow_html=True)
+                for p in [x for x in picks if x["industry"] == ind]:
+                    c1, c2, c3 = st.columns([1.5, 4, 1])
+                    with c1: st.markdown(f"**{p['symbol']}**")
+                    with c2: st.markdown(f"<small style='color:#6b7280'>{p['note'] or '—'} · {p['saved_at'][:10]}</small>", unsafe_allow_html=True)
+                    with c3:
+                        if st.button("Remove", key=f"rm_{p['symbol']}"):
+                            remove_pick(p["symbol"]); st.rerun()
 
-    if not history:
-        st.info("No history yet. Run an analysis first.")
-    else:
-        df = pd.DataFrame(history)
-        df["run_at"] = pd.to_datetime(df["run_at"]).dt.strftime("%Y-%m-%d %H:%M")
-        df = df[["run_at","symbol","action","score","current_price","target_price","upside_pct","regime","fund_score","tech_score","sent_score"]]
-        df.columns = ["Date","Symbol","Action","Score","Entry $","Target $","Upside %","Regime","Fund","Tech","Sent"]
+    with hist_tab:
+        st.markdown("### 🕐 Suggestion History")
+        st.markdown("""
+        <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;
+          padding:.7rem 1rem;margin-bottom:1rem;font-size:.85rem;color:#475569">
+          <b style="color:#0f172a">What this does:</b> Full log of every AI suggestion ever generated
+          for your watchlist — date, action signal, score breakdown (Fundamentals / Technicals /
+          Sentiment), entry price, and target. Filter by ticker to see how a specific stock's
+          score has evolved over time, with a trend chart if multiple data points exist.
+        </div>""", unsafe_allow_html=True)
+        sym_filter = (st.text_input("Filter by symbol", placeholder="AAPL").upper() or None)
+        history = get_suggestion_history(symbol=sym_filter, limit=100)
+        if not history:
+            st.info("No history yet. Run an analysis first.")
+        else:
+            df_h = pd.DataFrame(history)
+            df_h["run_at"] = pd.to_datetime(df_h["run_at"]).dt.strftime("%Y-%m-%d %H:%M")
+            df_h = df_h[["run_at","symbol","action","score","current_price","target_price","upside_pct","regime","fund_score","tech_score","sent_score"]]
+            df_h.columns = ["Date","Symbol","Action","Score","Entry $","Target $","Upside %","Regime","Fund","Tech","Sent"]
 
-        def _color_action(val):
-            palette = {
-                "Strong Buy": "background-color:#dcfce7;color:#166534",
-                "Buy":        "background-color:#dbeafe;color:#1e40af",
-                "Watch":      "background-color:#fef9c3;color:#854d0e",
-                "Avoid":      "background-color:#fee2e2;color:#991b1b",
-            }
-            return palette.get(val, "")
+            def _color_action(val):
+                return {"Strong Buy":"background-color:#dcfce7;color:#166534",
+                        "Buy":"background-color:#dbeafe;color:#1e40af",
+                        "Watch":"background-color:#fef9c3;color:#854d0e",
+                        "Avoid":"background-color:#fee2e2;color:#991b1b"}.get(val,"")
 
-        st.dataframe(df.style.applymap(_color_action, subset=["Action"]),
-                     use_container_width=True, height=500)
-
-        if sym_filter and len(df) > 1:
-            st.markdown(f'<div class="section-header">Score trend — {sym_filter}</div>', unsafe_allow_html=True)
-            fig3 = px.line(df.sort_values("Date"), x="Date", y="Score",
-                           markers=True, color_discrete_sequence=["#667eea"])
-            fig3.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                               font=dict(family="Inter"), height=300,
-                               margin=dict(l=10,r=10,t=20,b=20))
-            st.plotly_chart(fig3, use_container_width=True)
+            st.dataframe(df_h.style.applymap(_color_action, subset=["Action"]),
+                         use_container_width=True, height=420)
+            if sym_filter and len(df_h) > 1:
+                st.markdown(f'<div class="section-header">Score trend — {sym_filter}</div>', unsafe_allow_html=True)
+                fig3 = px.line(df_h.sort_values("Date"), x="Date", y="Score",
+                               markers=True, color_discrete_sequence=["#6366f1"])
+                fig3.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                                   font=dict(family="Inter"), height=280,
+                                   margin=dict(l=10,r=10,t=10,b=20))
+                st.plotly_chart(fig3, use_container_width=True)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -944,88 +1526,127 @@ elif page == "History":
 # ══════════════════════════════════════════════════════════════════════════════
 elif page == "Performance":
     st.markdown("# Suggestion Performance")
-    st.markdown("How have past suggestions done? Compares the entry price at suggestion time to today's price.")
+    st.markdown("Track how AI suggestions have performed across different time horizons.")
+
+    # Timeframe selector
+    _tf_opts = ["Since Suggestion", "1 Week", "1 Month", "3 Months", "6 Months"]
+    _tf_days = {"Since Suggestion": None, "1 Week": 7, "1 Month": 30, "3 Months": 90, "6 Months": 180}
+    _tf = st.radio("Return window:", _tf_opts, horizontal=True, key="perf_tf")
+    _lookback_days = _tf_days[_tf]
 
     baselines = get_performance_snapshot()
     if not baselines:
         st.info("No suggestion history yet. Run an analysis first to start tracking.")
     else:
         rows = []
-        with st.spinner("Fetching current prices…"):
-            for b in baselines:
-                try:
-                    info = fetch_ticker_info(b["symbol"])
-                    now = info.get("currentPrice") or info.get("regularMarketPrice") or 0.0
-                    entry = b["entry_price"] or 0.0
-                    ret_pct = round((now - entry) / entry * 100, 1) if entry else None
-                    rows.append({
-                        "Symbol":       b["symbol"],
-                        "Suggested":    b["run_at"][:10],
-                        "Action":       b["action"],
-                        "Entry $":      entry,
-                        "Now $":        round(now, 2),
-                        "Return %":     ret_pct,
-                        "Target $":     b["target_price"],
-                        "To Target %":  round((b["target_price"] - now) / now * 100, 1) if now else None,
-                    })
-                except Exception:
-                    continue
+        with st.spinner("Fetching prices…"):
+            from concurrent.futures import ThreadPoolExecutor as _TPE, as_completed as _asc
+            import datetime as _dt
+
+            def _fetch_perf(b):
+                info = fetch_ticker_info(b["symbol"])
+                now_p = _safe_float(info.get("currentPrice") or info.get("regularMarketPrice"))
+                if _lookback_days is None:
+                    # Return vs entry price logged at suggestion time
+                    entry = _safe_float(b["entry_price"])
+                    ret = round((now_p - entry) / entry * 100, 1) if entry else None
+                    period_label = b["run_at"][:10]
+                else:
+                    # Return vs price N days ago using price history
+                    hist = fetch_price_history(b["symbol"], period="1y")
+                    if hist is not None and not hist.empty:
+                        cutoff = _dt.date.today() - _dt.timedelta(days=_lookback_days)
+                        past = hist[hist.index.date <= cutoff]
+                        entry = float(past["Close"].iloc[-1]) if not past.empty else now_p
+                    else:
+                        entry = now_p
+                    ret = round((now_p - entry) / entry * 100, 1) if entry else None
+                    period_label = f"{_lookback_days}d ago"
+                return {
+                    "Symbol":      b["symbol"],
+                    "Suggested":   b["run_at"][:10],
+                    "Action":      b["action"],
+                    "Entry $":     round(entry, 2) if entry else None,
+                    "Now $":       round(now_p, 2),
+                    "Return %":    ret,
+                    "Window":      period_label,
+                    "Target $":    b["target_price"],
+                    "To Target %": round((b["target_price"] - now_p) / now_p * 100, 1) if now_p else None,
+                }
+
+            with _TPE(max_workers=15) as _ex:
+                for res in _ex.map(_fetch_perf, baselines):
+                    try:
+                        rows.append(res)
+                    except Exception:
+                        pass
 
         if not rows:
             st.info("Could not fetch current prices.")
         else:
             df_perf = pd.DataFrame(rows)
+            df_perf["Return %"] = df_perf["Return %"].apply(lambda v: _safe_float(v))
 
-            # Summary KPIs
-            winners = sum(1 for r in rows if (r["Return %"] or 0) > 0)
-            avg_ret = sum(r["Return %"] or 0 for r in rows) / len(rows)
-            col_a, col_b, col_c = st.columns(3)
-            with col_a:
-                st.markdown(f"""<div class="metric-card">
-                  <div class="metric-label">Stocks tracked</div>
-                  <div class="metric-value">{len(rows)}</div></div>""", unsafe_allow_html=True)
-            with col_b:
-                win_color = "#16a34a" if winners > len(rows)/2 else "#dc2626"
-                st.markdown(f"""<div class="metric-card">
-                  <div class="metric-label">Winners</div>
-                  <div class="metric-value" style="color:{win_color}">{winners}/{len(rows)}</div>
-                  <div class="metric-sub">up since suggestion</div></div>""", unsafe_allow_html=True)
-            with col_c:
-                avg_color = "#16a34a" if avg_ret >= 0 else "#dc2626"
-                st.markdown(f"""<div class="metric-card">
-                  <div class="metric-label">Avg Return</div>
-                  <div class="metric-value" style="color:{avg_color}">{avg_ret:+.1f}%</div>
-                  <div class="metric-sub">across all suggestions</div></div>""", unsafe_allow_html=True)
+            winners  = sum(1 for r in rows if _safe_float(r["Return %"]) > 0)
+            losers   = sum(1 for r in rows if _safe_float(r["Return %"]) < 0)
+            avg_ret  = sum(_safe_float(r["Return %"]) for r in rows) / max(len(rows),1)
+            best_r   = max(rows, key=lambda r: _safe_float(r["Return %"]))
+
+            col_a, col_b, col_c, col_d, col_e = st.columns(5)
+            def _pkpi(c, lbl, val, sub="", col=None):
+                color = f"color:{col};" if col else ""
+                c.markdown(f"""<div class="metric-card">
+                  <div class="metric-label">{lbl}</div>
+                  <div class="metric-value" style="{color}">{val}</div>
+                  <div class="metric-sub">{sub}</div></div>""", unsafe_allow_html=True)
+
+            _pkpi(col_a, "Tracked", len(rows), "suggestions")
+            _pkpi(col_b, "Winners", winners, "positive return", "#16a34a")
+            _pkpi(col_c, "Losers",  losers,  "negative return", "#dc2626")
+            _pkpi(col_d, "Avg Return", f"{avg_ret:+.1f}%", _tf,
+                  "#16a34a" if avg_ret >= 0 else "#dc2626")
+            _pkpi(col_e, "Best Pick",
+                  f"{_safe_float(best_r['Return %']):+.1f}%",
+                  best_r["Symbol"], "#16a34a")
 
             st.markdown("<br>", unsafe_allow_html=True)
 
-            # Color-coded table
-            def _ret_color(val):
-                if val is None: return ""
-                return "color:#16a34a;font-weight:600" if val > 0 else "color:#dc2626;font-weight:600"
-
-            st.markdown('<div class="section-header">Return Since Suggestion</div>', unsafe_allow_html=True)
-            st.dataframe(
-                df_perf.style.applymap(_ret_color, subset=["Return %"]),
-                use_container_width=True, height=420,
-            )
-
-            # Waterfall chart
-            st.markdown('<div class="section-header">Return by Stock</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="section-header">Return — {_tf}</div>', unsafe_allow_html=True)
             df_chart = df_perf.dropna(subset=["Return %"]).sort_values("Return %", ascending=False)
-            colors = ["#16a34a" if v >= 0 else "#dc2626" for v in df_chart["Return %"]]
+            bar_colors = ["#16a34a" if v >= 0 else "#ef4444" for v in df_chart["Return %"]]
             fig_ret = go.Figure(go.Bar(
                 x=df_chart["Symbol"], y=df_chart["Return %"],
-                marker_color=colors, text=df_chart["Return %"].apply(lambda x: f"{x:+.1f}%"),
-                textposition="outside",
+                marker_color=bar_colors,
+                text=df_chart["Return %"].apply(lambda x: f"{x:+.1f}%"),
+                textposition="outside", textfont_size=10,
+                hovertemplate="<b>%{x}</b><br>Return (%s): %%{y:+.1f}%%<extra></extra>" % _tf,
             ))
-            fig_ret.add_hline(y=0, line_dash="dot", line_color="#9ca3af")
+            fig_ret.add_hline(y=0, line_color="#94a3b8", line_width=1)
             fig_ret.update_layout(
-                height=350, yaxis_title="Return %",
+                height=360, yaxis_title="Return %",
                 paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                font=dict(family="Inter"), margin=dict(l=10,r=10,t=20,b=20),
+                font=dict(family="Inter", size=11),
+                margin=dict(l=10, r=10, t=10, b=50),
+                xaxis=dict(tickangle=-40, showgrid=False),
+                yaxis=dict(gridcolor="#f1f5f9", zerolinecolor="#cbd5e1", ticksuffix="%"),
+                bargap=0.3,
             )
-            st.plotly_chart(fig_ret, use_container_width=True)
+            st.plotly_chart(fig_ret, use_container_width=True, config={"displayModeBar": False})
+
+            st.markdown('<div class="section-header">Detail Table</div>', unsafe_allow_html=True)
+            def _ret_style(val):
+                if val is None or (isinstance(val, float) and math.isnan(val)): return ""
+                return "color:#16a34a;font-weight:600" if val > 0 else "color:#ef4444;font-weight:600"
+
+            _show_cols = ["Symbol","Action","Suggested","Window","Entry $","Now $","Return %","Target $","To Target %"]
+            st.dataframe(
+                df_perf[_show_cols].style
+                    .applymap(_ret_style, subset=["Return %", "To Target %"])
+                    .format({"Entry $": "${:.2f}", "Now $": "${:.2f}",
+                             "Target $": "${:.2f}", "Return %": "{:+.1f}%",
+                             "To Target %": "{:+.1f}%"}, na_rep="—"),
+                use_container_width=True, height=400,
+            )
 
 
 # ══════════════════════════════════════════════════════════════════════════════
