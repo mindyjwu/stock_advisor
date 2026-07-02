@@ -20,7 +20,7 @@ from data.loader import (
 from db.store import (
     init_db, get_saved_picks, save_pick, remove_pick,
     get_suggestion_history, get_recent_alerts, get_performance_snapshot,
-    get_latest_run_suggestions,
+    get_latest_run_suggestions, get_last_scan,
 )
 from scripts.run_analysis import run_analysis
 from agents.allocator import build_plan, PROFILES
@@ -1570,7 +1570,7 @@ elif page == "Scan & Alerts":
             run_scan = st.button("🔍  Run Market Scan")
 
         if run_scan:
-            with st.spinner("Scanning S&P 500… fetching data in parallel, please wait ~60s"):
+            with st.spinner("Scanning S&P 500 in parallel… usually ~30s"):
                 progress = st.empty()
                 def _cb(msg): progress.caption(msg)
                 full_results, pass1_results, regime = scan_market(shortlist_size=int(shortlist_n), status_cb=_cb)
@@ -1584,6 +1584,16 @@ elif page == "Scan & Alerts":
         scan_full   = st.session_state.get("scan_full")
         scan_pass1  = st.session_state.get("scan_pass1")
         scan_regime = st.session_state.get("scan_regime")
+
+        # Fall back to the last saved scan so results survive app restarts
+        if not scan_full:
+            _saved_scan = get_last_scan()
+            if _saved_scan and _saved_scan["full"]:
+                scan_full   = _saved_scan["full"]
+                scan_pass1  = _saved_scan["pass1"]
+                scan_regime = _saved_scan["regime"]
+                st.caption(f"Showing your last scan from {_saved_scan['run_at'][:16].replace('T',' ')} UTC — "
+                           "click **Run Market Scan** for fresh results.")
 
         if not scan_full:
             st.info("Click **Run Market Scan** to discover ideas beyond your watchlist.")
@@ -1787,42 +1797,42 @@ elif page == "Performance":
             import datetime as _dt
 
             def _fetch_perf(b):
-                info = fetch_ticker_info(b["symbol"])
-                now_p = _safe_float(info.get("currentPrice") or info.get("regularMarketPrice"))
-                if _lookback_days is None:
-                    # Return vs entry price logged at suggestion time
-                    entry = _safe_float(b["entry_price"])
-                    ret = round((now_p - entry) / entry * 100, 1) if entry else None
-                    period_label = b["run_at"][:10]
-                else:
-                    # Return vs price N days ago using price history
-                    hist = fetch_price_history(b["symbol"], period="1y")
-                    if hist is not None and not hist.empty:
-                        cutoff = _dt.date.today() - _dt.timedelta(days=_lookback_days)
-                        past = hist[hist.index.date <= cutoff]
-                        entry = float(past["Close"].iloc[-1]) if not past.empty else now_p
+                # Returns None on any failure so one bad ticker can't kill the page
+                try:
+                    info = fetch_ticker_info(b["symbol"])
+                    now_p = _safe_float(info.get("currentPrice") or info.get("regularMarketPrice"))
+                    if _lookback_days is None:
+                        # Return vs entry price logged at suggestion time
+                        entry = _safe_float(b["entry_price"])
+                        period_label = b["run_at"][:10]
                     else:
-                        entry = now_p
+                        # Return vs price N days ago using price history
+                        hist = fetch_price_history(b["symbol"], period="1y")
+                        if hist is not None and not hist.empty:
+                            cutoff = _dt.date.today() - _dt.timedelta(days=_lookback_days)
+                            past = hist[hist.index.date <= cutoff]
+                            entry = _safe_float(past["Close"].iloc[-1]) if not past.empty else now_p
+                        else:
+                            entry = now_p
+                        period_label = f"{_lookback_days}d ago"
                     ret = round((now_p - entry) / entry * 100, 1) if entry else None
-                    period_label = f"{_lookback_days}d ago"
-                return {
-                    "Symbol":      b["symbol"],
-                    "Suggested":   b["run_at"][:10],
-                    "Action":      b["action"],
-                    "Entry $":     round(entry, 2) if entry else None,
-                    "Now $":       round(now_p, 2),
-                    "Return %":    ret,
-                    "Window":      period_label,
-                    "Target $":    b["target_price"],
-                    "To Target %": round((b["target_price"] - now_p) / now_p * 100, 1) if now_p else None,
-                }
+                    target = _safe_float(b.get("target_price"))
+                    return {
+                        "Symbol":      b["symbol"],
+                        "Suggested":   b["run_at"][:10],
+                        "Action":      b["action"],
+                        "Entry $":     round(entry, 2) if entry else None,
+                        "Now $":       round(now_p, 2) if now_p else None,
+                        "Return %":    ret,
+                        "Window":      period_label,
+                        "Target $":    target if target > 0 else None,
+                        "To Target %": round((target - now_p) / now_p * 100, 1) if (target > 0 and now_p > 0) else None,
+                    }
+                except Exception:
+                    return None
 
             with _TPE(max_workers=15) as _ex:
-                for res in _ex.map(_fetch_perf, baselines):
-                    try:
-                        rows.append(res)
-                    except Exception:
-                        pass
+                rows = [r for r in _ex.map(_fetch_perf, baselines) if r is not None]
 
         if not rows:
             st.info("Could not fetch current prices.")
@@ -1862,7 +1872,7 @@ elif page == "Performance":
                 marker_color=bar_colors,
                 text=df_chart["Return %"].apply(lambda x: f"{x:+.1f}%"),
                 textposition="outside", textfont_size=10,
-                hovertemplate="<b>%{x}</b><br>Return (%s): %%{y:+.1f}%%<extra></extra>" % _tf,
+                hovertemplate="<b>%{x}</b><br>Return (" + _tf + "): %{y:+.1f}%<extra></extra>",
             ))
             fig_ret.add_hline(y=0, line_color="#94a3b8", line_width=1)
             fig_ret.update_layout(
