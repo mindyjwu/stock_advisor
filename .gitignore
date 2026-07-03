@@ -8,8 +8,11 @@ __pycache__/
 .venv/
 venv/
 
-# Data files with personal holdings
+# Data files with personal holdings (per-user data lives in data/users/)
 data/holdings.json
+data/watchlist.json
+data/*.migrated
+data/users/
 data/sp500_cache.json
 
 # Database (local state)

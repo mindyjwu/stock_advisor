@@ -40,11 +40,13 @@ def _fetch_one(item):
 
 
 def run_analysis(
+    user_id: int,
     status_cb=None,
     use_llm_regime: bool = True,
     max_workers: int = 20,
 ) -> tuple:
-    """Returns (suggestions_list, regime_dict) sorted by score desc.
+    """Returns (suggestions_list, regime_dict) sorted by score desc, scoped to
+    one user's watchlist and holdings.
 
     max_workers controls parallel yfinance threads. 20 is safe for most
     networks; lower it if you see rate-limit errors.
@@ -56,10 +58,10 @@ def run_analysis(
         status_cb("Detecting market regime…")
     regime = detect_regime(vix, use_llm=use_llm_regime)
 
-    holdings = load_holdings()
+    holdings = load_holdings(user_id)
     portfolio_value = current_portfolio_value(holdings)
     by_symbol = holdings_by_symbol(holdings)
-    watchlist = load_watchlist()
+    watchlist = load_watchlist(user_id)
 
     if status_cb:
         status_cb(f"Fetching data for {len(watchlist)} stocks in parallel…")
@@ -103,7 +105,7 @@ def run_analysis(
         suggestion["sent_score"] = sent["score"]
 
         log_suggestion(
-            suggestion, pr["fund"]["score"], pr["tech"]["score"], sent["score"],
+            user_id, suggestion, pr["fund"]["score"], pr["tech"]["score"], sent["score"],
             regime["key"], all_reasons
         )
         results.append(suggestion)
@@ -114,8 +116,12 @@ def run_analysis(
 
 if __name__ == "__main__":
     import time
+    from db.users import get_owner
+    owner = get_owner()
+    if not owner:
+        sys.exit("No accounts yet — sign up in the app first (the first account becomes the owner).")
     t0 = time.time()
-    suggestions, regime = run_analysis(status_cb=print)
+    suggestions, regime = run_analysis(owner["id"], status_cb=print)
     elapsed = time.time() - t0
     print(f"\nRegime: {regime['label']}  (VIX {regime['vix']})")
     print(f"Weights → Fund:{regime['fund']} Tech:{regime['tech']} Sent:{regime['sent']}")

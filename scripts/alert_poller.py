@@ -44,12 +44,12 @@ def _notify(title: str, message: str):
         f.write(f"[{datetime.utcnow().isoformat()}] {title}: {message}\n")
 
 
-def run_once(previous_actions: dict) -> dict:
-    results, regime = run_analysis(status_cb=None, use_llm_regime=True)
+def run_once(user_id: int, previous_actions: dict) -> dict:
+    results, regime = run_analysis(user_id, status_cb=None, use_llm_regime=True)
     alerts = check_triggers(results, previous_actions)
 
     for alert in alerts:
-        newly_logged = log_alert(alert["symbol"], alert["type"], alert["message"], alert["dedup_key"])
+        newly_logged = log_alert(user_id, alert["symbol"], alert["type"], alert["message"], alert["dedup_key"])
         if newly_logged:
             _notify("Stock Advisor", alert["message"])
 
@@ -58,7 +58,14 @@ def run_once(previous_actions: dict) -> dict:
 
 def main():
     init_db()
-    print(f"Alert poller started. Polling every {POLL_INTERVAL_SECONDS}s during market hours (9:30-16:00 ET).")
+    # The poller runs on the owner's machine, so it watches the owner's watchlist
+    from db.users import get_owner
+    owner = get_owner()
+    if not owner:
+        print("No accounts yet — sign up in the app first (the first account becomes the owner).")
+        return
+    print(f"Alert poller started for @{owner['username']}. "
+          f"Polling every {POLL_INTERVAL_SECONDS}s during market hours (9:30-16:00 ET).")
     print(f"Logging to {LOG_PATH}")
 
     previous_actions = {}
@@ -68,7 +75,7 @@ def main():
             if _is_market_hours(now):
                 print(f"[{now.isoformat()}] Checking triggers...")
                 try:
-                    previous_actions = run_once(previous_actions)
+                    previous_actions = run_once(owner["id"], previous_actions)
                 except Exception as e:
                     print(f"Error during check: {e}")
             else:

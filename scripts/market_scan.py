@@ -48,7 +48,7 @@ def _scan_one(item):
     }
 
 
-def scan_market(shortlist_size: int = 25, status_cb=None, max_workers: int = 20) -> tuple[list[dict], list[dict], dict]:
+def scan_market(user_id: int, shortlist_size: int = 25, status_cb=None, max_workers: int = 20) -> tuple[list[dict], list[dict], dict]:
     """
     Returns (full_results, pass1_results, regime).
     full_results: fully scored shortlist (with sentiment), sorted desc.
@@ -82,7 +82,7 @@ def scan_market(shortlist_size: int = 25, status_cb=None, max_workers: int = 20)
     pass1_results.sort(key=lambda x: x["cheap_score"], reverse=True)
     shortlist = pass1_results[:shortlist_size]
 
-    holdings = load_holdings()
+    holdings = load_holdings(user_id)
     portfolio_value = current_portfolio_value(holdings)
     by_symbol = holdings_by_symbol(holdings)
 
@@ -107,7 +107,7 @@ def scan_market(shortlist_size: int = 25, status_cb=None, max_workers: int = 20)
         suggestion["tech_score"] = item["tech_score"]
         suggestion["sent_score"] = sent["score"]
 
-        log_suggestion(suggestion, item["fund_score"], item["tech_score"], sent["score"],
+        log_suggestion(user_id, suggestion, item["fund_score"], item["tech_score"], sent["score"],
                        regime["key"], all_reasons)
         full_results.append(suggestion)
 
@@ -117,12 +117,16 @@ def scan_market(shortlist_size: int = 25, status_cb=None, max_workers: int = 20)
     for r in pass1_results:
         r.pop("info", None)
 
-    save_scan(full_results, pass1_results, regime)
+    save_scan(user_id, full_results, pass1_results, regime)
     return full_results, pass1_results, regime
 
 
 if __name__ == "__main__":
-    full, pass1, regime = scan_market(shortlist_size=25, status_cb=print)
+    from db.users import get_owner
+    owner = get_owner()
+    if not owner:
+        sys.exit("No accounts yet — sign up in the app first (the first account becomes the owner).")
+    full, pass1, regime = scan_market(owner["id"], shortlist_size=25, status_cb=print)
     print(f"\nScanned {len(pass1)} S&P 500 tickers, shortlisted top 25 for full scoring.")
     print(f"Regime: {regime['label']} (source={regime['source']})  {regime.get('rationale','')}\n")
     for s in full[:15]:

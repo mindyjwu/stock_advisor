@@ -1,21 +1,61 @@
 import json
 import pathlib
+import shutil
 import yfinance as yf
 import pandas as pd
 from functools import lru_cache
 
 ROOT = pathlib.Path(__file__).parent.parent
-WATCHLIST_PATH = ROOT / "data" / "watchlist.json"
-HOLDINGS_PATH = ROOT / "data" / "holdings.json"
+# Legacy single-user files — migrated into the owner's folder on first signup
+LEGACY_WATCHLIST_PATH = ROOT / "data" / "watchlist.json"
+LEGACY_HOLDINGS_PATH = ROOT / "data" / "holdings.json"
+USERS_DIR = ROOT / "data" / "users"
+
+# Starter watchlist for brand-new accounts
+DEFAULT_WATCHLIST = [
+    {"symbol": "AAPL", "industry": "Technology"},
+    {"symbol": "MSFT", "industry": "Technology"},
+    {"symbol": "NVDA", "industry": "Technology"},
+    {"symbol": "JPM",  "industry": "Financials"},
+    {"symbol": "JNJ",  "industry": "Healthcare"},
+    {"symbol": "XOM",  "industry": "Energy"},
+    {"symbol": "COST", "industry": "Consumer Staples"},
+    {"symbol": "DIS",  "industry": "Communication Services"},
+]
 
 
-def load_watchlist() -> list[dict]:
-    with open(WATCHLIST_PATH) as f:
+def _user_dir(user_id: int) -> pathlib.Path:
+    d = USERS_DIR / str(int(user_id))
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def migrate_legacy_to_user(user_id: int):
+    """Move the pre-account watchlist/holdings files into this user's folder.
+    Called once, when the first (owner) account is created."""
+    d = _user_dir(user_id)
+    for legacy, name in ((LEGACY_WATCHLIST_PATH, "watchlist.json"),
+                         (LEGACY_HOLDINGS_PATH, "holdings.json")):
+        target = d / name
+        if legacy.exists() and not target.exists():
+            shutil.copy2(legacy, target)
+            legacy.rename(legacy.with_suffix(".json.migrated"))
+
+
+def load_watchlist(user_id: int) -> list[dict]:
+    path = _user_dir(user_id) / "watchlist.json"
+    if not path.exists():
+        save_watchlist(user_id, list(DEFAULT_WATCHLIST))
+        return list(DEFAULT_WATCHLIST)
+    with open(path) as f:
         return json.load(f)["tickers"]
 
 
-def load_holdings() -> dict:
-    with open(HOLDINGS_PATH) as f:
+def load_holdings(user_id: int) -> dict:
+    path = _user_dir(user_id) / "holdings.json"
+    if not path.exists():
+        return {"cash": 0.0, "positions": []}
+    with open(path) as f:
         return json.load(f)
 
 
@@ -56,15 +96,15 @@ def holdings_by_symbol(holdings: dict) -> dict:
     return {p["symbol"]: p for p in holdings.get("positions", [])}
 
 
-def save_watchlist(tickers: list[dict]):
-    with open(WATCHLIST_PATH, "w") as f:
+def save_watchlist(user_id: int, tickers: list[dict]):
+    with open(_user_dir(user_id) / "watchlist.json", "w") as f:
         json.dump({"tickers": tickers}, f, indent=2)
     fetch_ticker_info.cache_clear()
     fetch_price_history.cache_clear()
 
 
-def save_holdings(holdings: dict):
-    with open(HOLDINGS_PATH, "w") as f:
+def save_holdings(user_id: int, holdings: dict):
+    with open(_user_dir(user_id) / "holdings.json", "w") as f:
         json.dump(holdings, f, indent=2)
     fetch_ticker_info.cache_clear()
 

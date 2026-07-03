@@ -14,16 +14,22 @@ from datetime import datetime
 from streamlit_autorefresh import st_autorefresh
 
 from data.loader import (
-    load_watchlist, load_holdings, fetch_ticker_info, fetch_price_history,
-    save_watchlist, save_holdings, current_portfolio_value,
+    fetch_ticker_info, fetch_price_history, current_portfolio_value,
+    load_watchlist as _load_watchlist, load_holdings as _load_holdings,
+    save_watchlist as _save_watchlist, save_holdings as _save_holdings,
 )
 from db.store import (
-    init_db, get_saved_picks, save_pick, remove_pick,
-    get_suggestion_history, get_recent_alerts, get_performance_snapshot,
-    get_latest_run_suggestions, get_last_scan,
+    init_db,
+    get_saved_picks as _get_saved_picks, save_pick as _save_pick,
+    remove_pick as _remove_pick, get_suggestion_history as _get_suggestion_history,
+    get_recent_alerts as _get_recent_alerts,
+    get_performance_snapshot as _get_performance_snapshot,
+    get_latest_run_suggestions as _get_latest_run_suggestions,
+    get_last_scan as _get_last_scan,
 )
-from scripts.run_analysis import run_analysis
+from scripts.run_analysis import run_analysis as _run_analysis
 from agents.allocator import build_plan, PROFILES
+from app.auth import require_login, logout
 
 # ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -135,6 +141,26 @@ st.markdown("""
 
 # ── Init ──────────────────────────────────────────────────────────────────────
 init_db()
+
+# ── Auth gate: everything below runs for exactly one signed-in user ──────────
+USER = require_login()
+UID = USER["id"]
+
+# User-scoped shims — every data read/write in this file goes through these,
+# so each account only ever sees its own watchlist, portfolio, and history.
+def load_watchlist():                  return _load_watchlist(UID)
+def save_watchlist(tickers):           return _save_watchlist(UID, tickers)
+def load_holdings():                   return _load_holdings(UID)
+def save_holdings(holdings):           return _save_holdings(UID, holdings)
+def get_saved_picks():                 return _get_saved_picks(UID)
+def save_pick(symbol, industry, note=""): return _save_pick(UID, symbol, industry, note)
+def remove_pick(symbol):               return _remove_pick(UID, symbol)
+def get_suggestion_history(*a, **k):   return _get_suggestion_history(UID, *a, **k)
+def get_recent_alerts(limit=50):       return _get_recent_alerts(UID, limit)
+def get_performance_snapshot():        return _get_performance_snapshot(UID)
+def get_latest_run_suggestions():      return _get_latest_run_suggestions(UID)
+def get_last_scan():                   return _get_last_scan(UID)
+def run_analysis(status_cb=None, **k): return _run_analysis(UID, status_cb=status_cb, **k)
 
 ACTION_BADGE = {
     "Strong Buy": "badge-strong-buy",
@@ -350,6 +376,7 @@ with st.sidebar:
 <div style="padding:.5rem .5rem .2rem .5rem">
   <div style="font-size:1rem;font-weight:800;color:#f1f5f9;letter-spacing:-.01em">📈 Stock Advisor</div>
   <div style="font-size:.65rem;color:#475569">AI portfolio advisor</div>
+  <div style="font-size:.72rem;color:#94a3b8;margin-top:.3rem">👤 {USER['display_name']}{' · owner' if USER.get('is_owner') else ''}</div>
 </div>
 <div style="border-top:1px solid #1e2438;margin:.3rem 0 .2rem 0"></div>
 """, unsafe_allow_html=True)
@@ -447,6 +474,9 @@ with st.sidebar:
     if selected_model_label != st.session_state["ai_model_label"]:
         st.session_state["ai_model_label"] = selected_model_label
     st.session_state["ai_model_id"] = AI_MODELS[selected_model_label]
+
+    if st.button("↩  Sign out", key="logout_btn", use_container_width=True):
+        logout()
 
 
 # ── API key warning banner (shown at top of every page) ──────────────────────
@@ -1573,7 +1603,7 @@ elif page == "Scan & Alerts":
             with st.spinner("Scanning S&P 500 in parallel… usually ~30s"):
                 progress = st.empty()
                 def _cb(msg): progress.caption(msg)
-                full_results, pass1_results, regime = scan_market(shortlist_size=int(shortlist_n), status_cb=_cb)
+                full_results, pass1_results, regime = scan_market(UID, shortlist_size=int(shortlist_n), status_cb=_cb)
                 progress.empty()
             st.session_state["scan_full"] = full_results
             st.session_state["scan_pass1"] = pass1_results
@@ -1908,10 +1938,13 @@ elif page == "Performance":
 elif page == "Settings":
     st.markdown("# Settings")
 
-    # ── API Key ───────────────────────────────────────────────────────────────
+    # ── API Key (owner only — it's shared by the whole app) ──────────────────
     st.markdown("### 🔑 API Key")
     has_key = bool(os.environ.get("ANTHROPIC_API_KEY"))
-    if has_key:
+    if not USER.get("is_owner"):
+        st.caption("The AI key is managed by the app owner."
+                   + (" AI features are active. ✅" if has_key else " AI features are currently off."))
+    elif has_key:
         st.success("ANTHROPIC_API_KEY is set — sentiment scoring and LLM regime detection are active.")
     else:
         with st.form("api_key_form"):
