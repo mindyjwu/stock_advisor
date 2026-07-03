@@ -19,13 +19,14 @@ def load_holdings() -> dict:
         return json.load(f)
 
 
-@lru_cache(maxsize=64)
+# maxsize must cover a full ~500-ticker S&P scan, or the cache thrashes
+@lru_cache(maxsize=1024)
 def fetch_ticker_info(symbol: str) -> dict:
     t = yf.Ticker(symbol)
     return t.info or {}
 
 
-@lru_cache(maxsize=64)
+@lru_cache(maxsize=1024)
 def fetch_price_history(symbol: str, period: str = "6mo") -> pd.DataFrame:
     t = yf.Ticker(symbol)
     df = t.history(period=period)

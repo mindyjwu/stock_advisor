@@ -58,6 +58,14 @@ def init_db():
             dedup_key  TEXT NOT NULL,
             UNIQUE(dedup_key)
         );
+
+        CREATE TABLE IF NOT EXISTS scans (
+            id      INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_at  TEXT NOT NULL,
+            regime  TEXT,
+            full    TEXT,
+            pass1   TEXT
+        );
         """)
 
 
@@ -136,6 +144,53 @@ def get_performance_snapshot() -> list[dict]:
             ORDER BY symbol
         """).fetchall()
         return [dict(r) for r in rows]
+
+
+def save_scan(full_results: list[dict], pass1_results: list[dict], regime: dict):
+    """Persist a market scan so it survives app restarts. Keeps only the latest 5."""
+    with _conn() as con:
+        con.execute(
+            "INSERT INTO scans (run_at, regime, full, pass1) VALUES (?,?,?,?)",
+            (datetime.utcnow().isoformat(), json.dumps(regime),
+             json.dumps(full_results), json.dumps(pass1_results)),
+        )
+        con.execute("""
+            DELETE FROM scans WHERE id NOT IN
+              (SELECT id FROM scans ORDER BY run_at DESC LIMIT 5)
+        """)
+
+
+def get_last_scan() -> Optional[dict]:
+    """Most recent saved scan as {run_at, regime, full, pass1}, or None."""
+    with _conn() as con:
+        row = con.execute("SELECT * FROM scans ORDER BY run_at DESC LIMIT 1").fetchone()
+        if not row:
+            return None
+        return {
+            "run_at": row["run_at"],
+            "regime": json.loads(row["regime"]) if row["regime"] else None,
+            "full":   json.loads(row["full"]) if row["full"] else [],
+            "pass1":  json.loads(row["pass1"]) if row["pass1"] else [],
+        }
+
+
+def get_latest_run_suggestions() -> list[dict]:
+    """Most recent logged suggestion per symbol — lets pages that need scores
+    (e.g. Invest Cash) work after a restart without re-running the analysis."""
+    with _conn() as con:
+        rows = con.execute("""
+            SELECT s.* FROM suggestions s
+            JOIN (SELECT symbol, MAX(run_at) AS latest FROM suggestions GROUP BY symbol) t
+              ON s.symbol = t.symbol AND s.run_at = t.latest
+            ORDER BY s.score DESC
+        """).fetchall()
+        result = []
+        for r in rows:
+            d = dict(r)
+            d["reasons"] = json.loads(d["reasons"]) if d["reasons"] else []
+            d["suggested_quantity"] = d.pop("suggested_qty", 0)
+            result.append(d)
+        return result
 
 
 def get_suggestion_history(symbol: Optional[str] = None, limit: int = 50) -> list[dict]:

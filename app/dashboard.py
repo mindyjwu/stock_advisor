@@ -20,8 +20,10 @@ from data.loader import (
 from db.store import (
     init_db, get_saved_picks, save_pick, remove_pick,
     get_suggestion_history, get_recent_alerts, get_performance_snapshot,
+    get_latest_run_suggestions, get_last_scan,
 )
 from scripts.run_analysis import run_analysis
+from agents.allocator import build_plan, PROFILES
 
 # ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -246,9 +248,10 @@ def _sidebar_snapshot():
         "has_rich":     has_rich,
     }
 
-PAGES = ["Dashboard", "Scan & Alerts", "Lists & History", "Performance", "Settings"]
+PAGES = ["Dashboard", "Invest Cash", "Scan & Alerts", "Lists & History", "Performance", "Settings"]
 PAGE_ICONS = {
     "Dashboard":      "◼",
+    "Invest Cash":    "💰",
     "Scan & Alerts":  "🔭",
     "Lists & History":"📋",
     "Performance":    "📊",
@@ -356,7 +359,7 @@ with st.sidebar:
         _icon = PAGE_ICONS.get(_p, "·")
         _is_active = (_p == current_page)
         _label = f"{'▶ ' if _is_active else ''}{_icon}  {_p}"
-        if st.button(_label, key=f"nav_{_p}", use_container_width=True):
+        if st.button(_label, key=f"nav_{_p}", width="stretch"):
             st.session_state["page"] = _p
             st.rerun()
 
@@ -364,7 +367,7 @@ with st.sidebar:
 
     st.markdown('<div style="border-top:1px solid #1e2438;margin:.2rem 0"></div>', unsafe_allow_html=True)
 
-    if st.button("▶  Run Analysis Now", use_container_width=True, key="run_btn"):
+    if st.button("▶  Run Analysis Now", width="stretch", key="run_btn"):
         st.session_state["run_analysis"] = True
 
     # ── Portfolio stats — compact HTML rows, no st.metric ────────────────
@@ -552,7 +555,7 @@ if page == "Dashboard":  # ── includes Portfolio ──
                 .applymap(_color_upside, subset=["Upside %"])
                 .format({"Score": "{:.0f}", "Entry $": "${:.2f}", "Target $": "${:.2f}",
                          "Upside %": "{:+.1f}%", "Shares": "{:g}"}, na_rep="—"),
-            use_container_width=True,
+            width="stretch",
             height=min(420, 60 + len(_rec_rows) * 38),
         )
         st.markdown("<br>", unsafe_allow_html=True)
@@ -783,7 +786,7 @@ if page == "Dashboard":  # ── includes Portfolio ──
                     .applymap(_gc, subset=["G/L $","G/L %","Day %"])
                     .format({"Qty":"{:g}","Price":"${:,.2f}","Value":"${:,.0f}",
                              "G/L $":"${:+,.0f}","G/L %":"{:+.1f}%","Day %":"{:+.2f}%"}, na_rep="—"),
-                use_container_width=True, height=min(350, 60 + len(matched)*38),
+                width="stretch", height=min(350, 60 + len(matched)*38),
             )
 
         # Merge all selected positions across both filters
@@ -1299,7 +1302,247 @@ if page == "Dashboard":  # ── includes Portfolio ──
         .applymap(_color_val, subset=["G/L ($)","G/L (%)","Day (%)"])
         .set_properties(**{"font-size": "12px"})
     )
-    st.dataframe(styled, use_container_width=True, height=500)
+    st.dataframe(styled, width="stretch", height=500)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# INVEST CASH
+# ══════════════════════════════════════════════════════════════════════════════
+elif page == "Invest Cash":
+    st.markdown("# 💰 Invest My Cash")
+    st.markdown("Tell me how much you're adding to your portfolio — I'll turn the latest analysis into a simple, diversified buy plan.")
+
+    # ── Get scored results: this session first, then the last saved run ──────
+    results   = st.session_state.get("results")
+    regime    = st.session_state.get("regime")
+    data_note = "using the analysis you just ran"
+    if not results:
+        _db_rows = get_latest_run_suggestions()
+        if _db_rows:
+            _wl_ind = {t["symbol"]: t.get("industry", "Misc") for t in load_watchlist()}
+            results = [dict(r, industry=_wl_ind.get(r["symbol"], "Misc")) for r in _db_rows]
+            _last_run = max(r["run_at"] for r in _db_rows)[:16].replace("T", " ")
+            data_note = f"using your last saved analysis ({_last_run} UTC) — run a fresh one for up-to-date prices"
+
+    if not results:
+        st.info("**No analysis yet.** I need scores before I can build a plan — click the button below (takes ~15 seconds).")
+        if st.button("▶  Run Analysis Now", key="invest_run_now"):
+            st.session_state["run_analysis"] = True
+            st.rerun()
+        st.stop()
+
+    holdings = load_holdings()
+    _avail_cash = _safe_float(holdings.get("cash", 0))
+
+    # ── Step 1: how much? ─────────────────────────────────────────────────────
+    st.markdown('<div class="section-header">Step 1 — How much do you want to invest?</div>', unsafe_allow_html=True)
+    _default_dep = round(_avail_cash) if _avail_cash >= 50 else 1000.0
+    if "deposit_amt" not in st.session_state:
+        st.session_state["deposit_amt"] = float(_default_dep)
+
+    dep_col, presets_col = st.columns([1.2, 2])
+    with dep_col:
+        deposit = st.number_input(
+            "Amount in dollars", min_value=50.0, max_value=1_000_000.0,
+            step=50.0, key="deposit_amt",
+            help="This can be new money you're depositing, or cash already sitting in your account.",
+        )
+    with presets_col:
+        st.markdown('<div style="font-size:.75rem;color:#94a3b8;margin-bottom:.3rem">Quick picks</div>', unsafe_allow_html=True)
+        _pcols = st.columns(5)
+        _presets = [500, 1000, 2500, 5000]
+        for _i, _amt in enumerate(_presets):
+            if _pcols[_i].button(f"${_amt:,}", key=f"preset_{_amt}"):
+                st.session_state["deposit_amt"] = float(_amt)
+                st.rerun()
+        if _avail_cash >= 50:
+            if _pcols[4].button(f"My cash (${_avail_cash:,.0f})", key="preset_cash"):
+                st.session_state["deposit_amt"] = float(round(_avail_cash))
+                st.rerun()
+
+    # ── Step 2: risk style ────────────────────────────────────────────────────
+    st.markdown('<div class="section-header">Step 2 — Pick your style</div>', unsafe_allow_html=True)
+    _profile_keys = list(PROFILES.keys())
+    profile_key = st.radio(
+        "Risk style",
+        _profile_keys,
+        index=_profile_keys.index(st.session_state.get("invest_profile", "balanced")),
+        format_func=lambda k: f"{PROFILES[k]['emoji']} {PROFILES[k]['label']}",
+        horizontal=True,
+        key="invest_profile",
+        label_visibility="collapsed",
+    )
+    _prof = PROFILES[profile_key]
+    st.caption(f"{_prof['description']}  ·  Up to {_prof['max_positions']} stocks, "
+               f"max {_prof['max_stock_pct']*100:.0f}% of your money in any one stock, "
+               f"max {_prof['max_sector_pct']*100:.0f}% in any one sector.")
+
+    # ── Advanced: factor weights & options ────────────────────────────────────
+    _rw = regime or {}
+    _def_fund = int(round(_rw.get("fund", 0.35) * 100))
+    _def_tech = int(round(_rw.get("tech", 0.35) * 100))
+    _def_sent = max(0, 100 - _def_fund - _def_tech)
+    custom_weights = None
+    with st.expander("⚙️ Advanced — adjust the recipe (optional)"):
+        st.markdown("""<div style="font-size:.82rem;color:#64748b;margin-bottom:.5rem">
+          Your plan blends three models: <b>Quantitative Performance</b> (company financials),
+          <b>Trend &amp; Momentum</b> (price charts), and <b>Market Sentiment</b> (AI reading the news —
+          the qualitative one). Normally the mix adjusts automatically to market conditions,
+          but you can override it here. Sliders are relative — I normalize them for you.
+        </div>""", unsafe_allow_html=True)
+        _use_custom = st.checkbox("Customize the factor mix", value=False, key="invest_custom_w")
+        _wc1, _wc2, _wc3 = st.columns(3)
+        _w_fund = _wc1.slider("⬡ Quantitative Performance", 0, 100, _def_fund, disabled=not _use_custom, key="w_fund")
+        _w_tech = _wc2.slider("⬡ Trend & Momentum", 0, 100, _def_tech, disabled=not _use_custom, key="w_tech")
+        _w_sent = _wc3.slider("⬡ Market Sentiment (AI)", 0, 100, _def_sent, disabled=not _use_custom, key="w_sent")
+        if _use_custom and (_w_fund + _w_tech + _w_sent) > 0:
+            custom_weights = {"fund": _w_fund, "tech": _w_tech, "sent": _w_sent}
+            _wt = _w_fund + _w_tech + _w_sent
+            st.caption(f"Effective mix → Performance {_w_fund/_wt*100:.0f}% · "
+                       f"Trend {_w_tech/_wt*100:.0f}% · Sentiment {_w_sent/_wt*100:.0f}%")
+        _oc1, _oc2 = st.columns(2)
+        allow_frac = _oc1.checkbox(
+            "Allow fractional shares", value=True, key="invest_frac",
+            help="Most brokers (including J.P. Morgan) let you buy part of a share. Turn off if yours only allows whole shares.",
+        )
+        max_pos_override = _oc2.slider(
+            "Max number of stocks", 2, 10, _prof["max_positions"], key="invest_maxpos",
+            help="Fewer stocks = more concentrated. More stocks = more diversified.",
+        )
+
+    # ── Build the plan (pure computation — instant) ───────────────────────────
+    plan = build_plan(
+        deposit, results, holdings, profile_key,
+        weights=custom_weights, allow_fractional=allow_frac,
+        max_positions=max_pos_override,
+    )
+    picks    = plan["picks"]
+    leftover = plan["leftover"]
+    invested = plan["invested"]
+
+    st.markdown('<div class="section-header" style="margin-top:1rem">Step 3 — Your plan</div>', unsafe_allow_html=True)
+    st.caption(f"Built {data_note}.")
+
+    if not picks:
+        st.warning(
+            "**I couldn't build a plan with these settings.** Usually this means the deposit is too small "
+            "for whole shares (try turning on fractional shares in Advanced), or nothing on your watchlist "
+            "currently scores above this style's quality bar. Check *Why aren't other stocks included?* below."
+        )
+    else:
+        # ── Summary strip ─────────────────────────────────────────────────────
+        _sectors = plan["stats"]["sectors"]
+        s1, s2, s3, s4 = st.columns(4)
+        for _col, _lbl, _val, _sub in (
+            (s1, "You invest",   f"${invested:,.0f}", f"of your ${deposit:,.0f}"),
+            (s2, "Across",       f"{len(picks)} stocks", f"{len(_sectors)} sector{'s' if len(_sectors)!=1 else ''}"),
+            (s3, "Cash left over", f"${leftover:,.0f}", "stays uninvested"),
+            (s4, "Plan quality", f"{plan['stats']['avg_score']:.0f}/100", "money-weighted score"),
+        ):
+            _col.markdown(f"""<div class="metric-card">
+              <div class="metric-label">{_lbl}</div>
+              <div class="metric-value">{_val}</div>
+              <div class="metric-sub">{_sub}</div></div>""", unsafe_allow_html=True)
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        # ── Plan cards + allocation donut ─────────────────────────────────────
+        _plan_col, _donut_col = st.columns([1.6, 1])
+
+        with _plan_col:
+            for _i, _pk in enumerate(picks, 1):
+                _c = _score_color(_pk["score"])
+                _shares_txt = (f"{_pk['shares']:g}" if float(_pk['shares']) == int(_pk['shares'])
+                               else f"{_pk['shares']:.4f}".rstrip("0"))
+                _own_note = ""
+                if _pk["existing_pct"] > 0:
+                    _own_note = (f'<div style="font-size:.74rem;color:#b45309;margin-top:.3rem">'
+                                 f'ℹ️ You already own some {_pk["symbol"]} '
+                                 f'({_pk["existing_pct"]:.0f}% of your portfolio) — this tops it up.</div>')
+                st.markdown(f"""
+<div style="background:#fff;border:1px solid #eef0f6;border-radius:14px;
+  padding:1rem 1.3rem;margin-bottom:.7rem;box-shadow:0 1px 6px rgba(0,0,0,.05)">
+  <div style="display:flex;align-items:center;gap:.7rem;flex-wrap:wrap">
+    <span style="background:#eef2ff;color:#6366f1;font-weight:800;border-radius:8px;
+      padding:2px 9px;font-size:.8rem">#{_i}</span>
+    <span style="font-size:1.15rem;font-weight:800;color:#0f172a">{_pk['symbol']}</span>
+    {_badge(_pk['action'])}
+    <span style="color:{_c};font-weight:700;font-size:.85rem">{_pk['score']:.0f}/100 · {_pk['conviction']}</span>
+    <span style="margin-left:auto;font-size:.78rem;color:#94a3b8">{_pk['sector']}</span>
+  </div>
+  <div style="display:flex;align-items:baseline;gap:.6rem;margin:.5rem 0 .2rem 0;flex-wrap:wrap">
+    <span style="font-size:1.5rem;font-weight:800;color:#0f172a">${_pk['dollars']:,.0f}</span>
+    <span style="font-size:.9rem;color:#475569">→ buy <b>{_shares_txt} share{'s' if float(_pk['shares'])!=1 else ''}</b> at ~${_pk['price']:,.2f}</span>
+    <span style="font-size:.8rem;color:#94a3b8">({_pk['pct_of_deposit']:.0f}% of your deposit)</span>
+  </div>
+  {_score_bar(_pk['pct_of_deposit'], _c)}
+  <div style="font-size:.8rem;color:#64748b;margin-top:.5rem"><b style="color:#334155">Why:</b> {_pk['why']}</div>
+  <div style="font-size:.72rem;color:#94a3b8;margin-top:.3rem">
+    Model scores — Performance {_pk.get('fund_score') or '—'} · Trend {_pk.get('tech_score') or '—'} · Sentiment {_pk.get('sent_score') or '—'}
+  </div>
+  {_own_note}
+</div>""", unsafe_allow_html=True)
+
+        with _donut_col:
+            st.markdown('<div style="font-size:.85rem;font-weight:700;color:#0f172a;margin-bottom:.3rem">Where your money goes</div>', unsafe_allow_html=True)
+            _dl = [p["symbol"] for p in picks] + (["Cash left over"] if leftover >= 1 else [])
+            _dv = [p["dollars"] for p in picks] + ([leftover] if leftover >= 1 else [])
+            _dcolors = ["#6366f1","#8b5cf6","#3b82f6","#10b981","#f59e0b",
+                        "#ec4899","#14b8a6","#f97316","#84cc16","#06b6d4"][:len(picks)] + ["#e2e8f0"]
+            _fig_plan = go.Figure(go.Pie(
+                labels=_dl, values=_dv, hole=0.55,
+                marker_colors=_dcolors[:len(_dl)],
+                textinfo="label+percent", textfont_size=10,
+                hovertemplate="<b>%{label}</b><br>$%{value:,.0f} · %{percent}<extra></extra>",
+            ))
+            _fig_plan.add_annotation(text=f"<b>${deposit:,.0f}</b><br><span style='font-size:9px;color:#94a3b8'>your deposit</span>",
+                                     x=0.5, y=0.5, showarrow=False, font_size=13, align="center")
+            _fig_plan.update_layout(height=300, margin=dict(l=10, r=10, t=10, b=10),
+                                    paper_bgcolor="rgba(0,0,0,0)", showlegend=False)
+            st.plotly_chart(_fig_plan, use_container_width=True, config={"displayModeBar": False})
+
+            st.markdown('<div style="font-size:.85rem;font-weight:700;color:#0f172a;margin:.4rem 0 .3rem 0">Sector mix</div>', unsafe_allow_html=True)
+            for _sec, _val in _sectors.items():
+                _pctv = _val / invested * 100 if invested else 0
+                st.markdown(f"""<div style="display:flex;justify-content:space-between;font-size:.78rem;margin-bottom:.15rem">
+                  <span style="color:#475569">{_sec}</span>
+                  <span style="color:#0f172a;font-weight:600">{_pctv:.0f}%</span></div>
+                  {_score_bar(_pctv, '#8b5cf6')}""", unsafe_allow_html=True)
+
+            # ── Copy-paste order checklist ─────────────────────────────────
+            st.markdown('<div style="font-size:.85rem;font-weight:700;color:#0f172a;margin:.8rem 0 .3rem 0">Your order checklist</div>', unsafe_allow_html=True)
+            _order_lines = "\n".join(
+                f"BUY  {p['symbol']:<6} {p['shares']:g} share(s)  ≈ ${p['dollars']:,.2f}"
+                for p in picks
+            )
+            st.code(_order_lines + f"\n---\nTotal ≈ ${invested:,.2f}  ·  keep ${leftover:,.2f} in cash", language=None)
+
+    # ── Why not others? ───────────────────────────────────────────────────────
+    if plan["skipped"]:
+        with st.expander(f"🤔 Why aren't other stocks included? ({len(plan['skipped'])} explained)"):
+            st.markdown('<div style="font-size:.8rem;color:#64748b;margin-bottom:.5rem">Being left out isn\'t always bad — some are skipped to keep you diversified, not because they\'re weak.</div>', unsafe_allow_html=True)
+            _sk_df = pd.DataFrame(plan["skipped"])[["symbol", "score", "reason"]]
+            _sk_df.columns = ["Ticker", "Score", "Why it's not in the plan"]
+            st.dataframe(_sk_df.style.format({"Score": "{:.0f}"}), width="stretch",
+                         height=min(380, 60 + len(plan["skipped"]) * 38))
+
+    # ── Beginner glossary ─────────────────────────────────────────────────────
+    with st.expander("📖 New to investing? What these words mean"):
+        st.markdown("""
+| Term | Plain English |
+|---|---|
+| **Score (0–100)** | The AI's overall grade for a stock right now. 75+ is a strong signal, below 45 means stay away. It blends the three models below. |
+| **Quantitative Performance** | How healthy the company's numbers are — is it profitable, growing, reasonably priced, not drowning in debt? |
+| **Trend & Momentum** | What the price chart says — is the stock in an uptrend, and is it overbought (maybe too late) or oversold (maybe a bargain)? |
+| **Market Sentiment** | The qualitative model: AI reads recent news headlines and judges whether the mood around the stock is positive or negative. |
+| **Market regime** | Whether the overall market is calm or stormy. In stormy markets the recipe trusts news and trends more; in calm markets, company numbers. |
+| **Diversification** | Not putting all your eggs in one basket. The plan caps how much goes into any single stock or industry. |
+| **Fractional shares** | Buying a piece of a share (e.g. 0.25 shares of a $500 stock for $125). Most big brokers support this. |
+| **Cash left over** | Money the plan intentionally doesn't spend — either from rounding to shares, or because nothing else met the quality bar. Leaving cash uninvested is fine. |
+""")
+
+    st.caption("⚠️ This is an educational tool, not financial advice. Scores are based on public data and AI "
+               "models that can be wrong — always do your own research before placing real trades.")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1327,7 +1570,7 @@ elif page == "Scan & Alerts":
             run_scan = st.button("🔍  Run Market Scan")
 
         if run_scan:
-            with st.spinner("Scanning S&P 500… fetching data in parallel, please wait ~60s"):
+            with st.spinner("Scanning S&P 500 in parallel… usually ~30s"):
                 progress = st.empty()
                 def _cb(msg): progress.caption(msg)
                 full_results, pass1_results, regime = scan_market(shortlist_size=int(shortlist_n), status_cb=_cb)
@@ -1342,6 +1585,16 @@ elif page == "Scan & Alerts":
         scan_pass1  = st.session_state.get("scan_pass1")
         scan_regime = st.session_state.get("scan_regime")
 
+        # Fall back to the last saved scan so results survive app restarts
+        if not scan_full:
+            _saved_scan = get_last_scan()
+            if _saved_scan and _saved_scan["full"]:
+                scan_full   = _saved_scan["full"]
+                scan_pass1  = _saved_scan["pass1"]
+                scan_regime = _saved_scan["regime"]
+                st.caption(f"Showing your last scan from {_saved_scan['run_at'][:16].replace('T',' ')} UTC — "
+                           "click **Run Market Scan** for fresh results.")
+
         if not scan_full:
             st.info("Click **Run Market Scan** to discover ideas beyond your watchlist.")
         else:
@@ -1350,11 +1603,11 @@ elif page == "Scan & Alerts":
             st.markdown('<div class="section-header">Top Shortlist (fully scored)</div>', unsafe_allow_html=True)
             df_full = pd.DataFrame(scan_full)[["symbol","industry","action","score","current_price","target_price","upside_pct","suggested_quantity"]]
             df_full.columns = ["Symbol","Industry","Action","Score","Price","Target","Upside %","Suggested Qty"]
-            st.dataframe(df_full, use_container_width=True, height=400)
+            st.dataframe(df_full, width="stretch", height=400)
             with st.expander(f"Pass 1: all {len(scan_pass1)} tickers (cheap score only)"):
                 df_p1 = pd.DataFrame(scan_pass1)[["symbol","industry","fund_score","tech_score","cheap_score"]]
                 df_p1.columns = ["Symbol","Industry","Fund","Tech","Cheap Score"]
-                st.dataframe(df_p1, use_container_width=True, height=380)
+                st.dataframe(df_p1, width="stretch", height=380)
 
             # ── Ask AI about the scan results ──────────────────────────────
             st.markdown('<div class="section-header" style="margin-top:1rem">Ask AI About These Results</div>', unsafe_allow_html=True)
@@ -1428,7 +1681,7 @@ Answer the user's question directly and concisely based on this data. Keep it un
         else:
             df_alerts = pd.DataFrame(alerts)[["fired_at","symbol","alert_type","message"]]
             df_alerts.columns = ["Fired At (UTC)","Symbol","Type","Message"]
-            st.dataframe(df_alerts, use_container_width=True, height=380)
+            st.dataframe(df_alerts, width="stretch", height=380)
         if st.button("⚡ Check triggers now (one-off)"):
             from agents.alerts import check_triggers
             from db.store import log_alert
@@ -1510,7 +1763,7 @@ elif page == "Lists & History":
                         "Avoid":"background-color:#fee2e2;color:#991b1b"}.get(val,"")
 
             st.dataframe(df_h.style.applymap(_color_action, subset=["Action"]),
-                         use_container_width=True, height=420)
+                         width="stretch", height=420)
             if sym_filter and len(df_h) > 1:
                 st.markdown(f'<div class="section-header">Score trend — {sym_filter}</div>', unsafe_allow_html=True)
                 fig3 = px.line(df_h.sort_values("Date"), x="Date", y="Score",
@@ -1544,42 +1797,42 @@ elif page == "Performance":
             import datetime as _dt
 
             def _fetch_perf(b):
-                info = fetch_ticker_info(b["symbol"])
-                now_p = _safe_float(info.get("currentPrice") or info.get("regularMarketPrice"))
-                if _lookback_days is None:
-                    # Return vs entry price logged at suggestion time
-                    entry = _safe_float(b["entry_price"])
-                    ret = round((now_p - entry) / entry * 100, 1) if entry else None
-                    period_label = b["run_at"][:10]
-                else:
-                    # Return vs price N days ago using price history
-                    hist = fetch_price_history(b["symbol"], period="1y")
-                    if hist is not None and not hist.empty:
-                        cutoff = _dt.date.today() - _dt.timedelta(days=_lookback_days)
-                        past = hist[hist.index.date <= cutoff]
-                        entry = float(past["Close"].iloc[-1]) if not past.empty else now_p
+                # Returns None on any failure so one bad ticker can't kill the page
+                try:
+                    info = fetch_ticker_info(b["symbol"])
+                    now_p = _safe_float(info.get("currentPrice") or info.get("regularMarketPrice"))
+                    if _lookback_days is None:
+                        # Return vs entry price logged at suggestion time
+                        entry = _safe_float(b["entry_price"])
+                        period_label = b["run_at"][:10]
                     else:
-                        entry = now_p
+                        # Return vs price N days ago using price history
+                        hist = fetch_price_history(b["symbol"], period="1y")
+                        if hist is not None and not hist.empty:
+                            cutoff = _dt.date.today() - _dt.timedelta(days=_lookback_days)
+                            past = hist[hist.index.date <= cutoff]
+                            entry = _safe_float(past["Close"].iloc[-1]) if not past.empty else now_p
+                        else:
+                            entry = now_p
+                        period_label = f"{_lookback_days}d ago"
                     ret = round((now_p - entry) / entry * 100, 1) if entry else None
-                    period_label = f"{_lookback_days}d ago"
-                return {
-                    "Symbol":      b["symbol"],
-                    "Suggested":   b["run_at"][:10],
-                    "Action":      b["action"],
-                    "Entry $":     round(entry, 2) if entry else None,
-                    "Now $":       round(now_p, 2),
-                    "Return %":    ret,
-                    "Window":      period_label,
-                    "Target $":    b["target_price"],
-                    "To Target %": round((b["target_price"] - now_p) / now_p * 100, 1) if now_p else None,
-                }
+                    target = _safe_float(b.get("target_price"))
+                    return {
+                        "Symbol":      b["symbol"],
+                        "Suggested":   b["run_at"][:10],
+                        "Action":      b["action"],
+                        "Entry $":     round(entry, 2) if entry else None,
+                        "Now $":       round(now_p, 2) if now_p else None,
+                        "Return %":    ret,
+                        "Window":      period_label,
+                        "Target $":    target if target > 0 else None,
+                        "To Target %": round((target - now_p) / now_p * 100, 1) if (target > 0 and now_p > 0) else None,
+                    }
+                except Exception:
+                    return None
 
             with _TPE(max_workers=15) as _ex:
-                for res in _ex.map(_fetch_perf, baselines):
-                    try:
-                        rows.append(res)
-                    except Exception:
-                        pass
+                rows = [r for r in _ex.map(_fetch_perf, baselines) if r is not None]
 
         if not rows:
             st.info("Could not fetch current prices.")
@@ -1619,7 +1872,7 @@ elif page == "Performance":
                 marker_color=bar_colors,
                 text=df_chart["Return %"].apply(lambda x: f"{x:+.1f}%"),
                 textposition="outside", textfont_size=10,
-                hovertemplate="<b>%{x}</b><br>Return (%s): %%{y:+.1f}%%<extra></extra>" % _tf,
+                hovertemplate="<b>%{x}</b><br>Return (" + _tf + "): %{y:+.1f}%<extra></extra>",
             ))
             fig_ret.add_hline(y=0, line_color="#94a3b8", line_width=1)
             fig_ret.update_layout(
@@ -1645,7 +1898,7 @@ elif page == "Performance":
                     .format({"Entry $": "${:.2f}", "Now $": "${:.2f}",
                              "Target $": "${:.2f}", "Return %": "{:+.1f}%",
                              "To Target %": "{:+.1f}%"}, na_rep="—"),
-                use_container_width=True, height=400,
+                width="stretch", height=400,
             )
 
 
@@ -1738,10 +1991,10 @@ elif page == "Settings":
                          "or expand 'Raw table' below to see what was found.")
                 if result["raw_table"] is not None:
                     with st.expander("Raw table extracted from PDF"):
-                        st.dataframe(result["raw_table"], use_container_width=True)
+                        st.dataframe(result["raw_table"], width="stretch")
             else:
                 st.markdown("**Preview — positions found in PDF:**")
-                st.dataframe(pd.DataFrame(positions), use_container_width=True)
+                st.dataframe(pd.DataFrame(positions), width="stretch")
                 if cash_val:
                     st.caption(f"Cash / money market detected: **${cash_val:,.2f}**")
 
@@ -1900,7 +2153,7 @@ elif page == "Settings":
                                 "day_change_pct","sector"]
                 preview_df = pd.DataFrame(positions)[[c for c in preview_cols if c in pd.DataFrame(positions).columns]]
                 preview_df.columns = [c.replace("_"," ").title() for c in preview_df.columns]
-                st.dataframe(preview_df, use_container_width=True, height=350)
+                st.dataframe(preview_df, width="stretch", height=350)
 
                 if csv_cash:
                     st.info(f"💵 Cash & money market detected: **${csv_cash:,.2f}**")
