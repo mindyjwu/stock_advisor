@@ -1,0 +1,4 @@
+[theme]
+# The app's cards and badges are styled for light backgrounds — force light
+# so users with OS-level dark mode don't get unreadable text.
+base = "light"
