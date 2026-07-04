@@ -25,8 +25,9 @@ from db.store import (
     get_recent_alerts as _get_recent_alerts,
     get_performance_snapshot as _get_performance_snapshot,
     get_latest_run_suggestions as _get_latest_run_suggestions,
-    get_last_scan as _get_last_scan,
+    get_last_scan as _get_last_scan, log_alert as _log_alert,
 )
+from agents.screener import STYLE_META
 from scripts.run_analysis import run_analysis as _run_analysis
 from agents.allocator import build_plan, PROFILES
 from app.auth import require_login, logout
@@ -1611,6 +1612,22 @@ elif page == "Scan & Alerts":
             st.session_state["scan_chat"] = []
             st.success(f"Scanned {len(pass1_results)} tickers — top {len(full_results)} fully scored.")
 
+            # Discovery alerts: Strong Buys you don't own or track yet
+            from datetime import date as _date
+            _wl_syms = {t["symbol"] for t in load_watchlist()}
+            _held_syms = {p["symbol"] for p in load_holdings().get("positions", [])}
+            _n_disc = 0
+            for _r in full_results:
+                if (_r["action"] == "Strong Buy"
+                        and _r["symbol"] not in _wl_syms and _r["symbol"] not in _held_syms):
+                    if _log_alert(UID, _r["symbol"], "scan_discovery",
+                                  f"Scan discovery: {_r['symbol']} is a Strong Buy (score {_r['score']}) "
+                                  f"and isn't in your watchlist or portfolio yet",
+                                  f"{_r['symbol']}:scan_discovery:{_date.today().isoformat()}"):
+                        _n_disc += 1
+            if _n_disc:
+                st.toast(f"🔔 {_n_disc} new discovery alert(s) — see the Alerts tab")
+
         scan_full   = st.session_state.get("scan_full")
         scan_pass1  = st.session_state.get("scan_pass1")
         scan_regime = st.session_state.get("scan_regime")
@@ -1630,10 +1647,103 @@ elif page == "Scan & Alerts":
         else:
             if scan_regime:
                 st.caption(f"Regime: **{scan_regime['label']}** — {scan_regime.get('rationale','')}")
-            st.markdown('<div class="section-header">Top Shortlist (fully scored)</div>', unsafe_allow_html=True)
-            df_full = pd.DataFrame(scan_full)[["symbol","industry","action","score","current_price","target_price","upside_pct","suggested_quantity"]]
-            df_full.columns = ["Symbol","Industry","Action","Score","Price","Target","Upside %","Suggested Qty"]
-            st.dataframe(df_full, width="stretch", height=400)
+
+            # ── Style filter: what KIND of stock are you shopping for? ────────
+            st.markdown('<div class="section-header">Recommendations</div>', unsafe_allow_html=True)
+            _styles_present = {r.get("best_style") for r in scan_full if r.get("best_style")}
+            _filter_opts = ["All"] + [k for k in STYLE_META if k in _styles_present]
+            _style_pick = st.radio(
+                "What are you looking for?",
+                _filter_opts,
+                format_func=lambda k: "⭐ Best overall" if k == "All"
+                    else f"{STYLE_META[k]['emoji']} {STYLE_META[k]['label']} — {STYLE_META[k]['blurb']}",
+                horizontal=True, key="scan_style_filter",
+            )
+
+            if _style_pick == "All":
+                _shown = list(scan_full)
+            else:
+                # rank by that style's score, keep only stocks that genuinely fit it
+                _shown = sorted(
+                    [r for r in scan_full if r.get("styles", {}).get(_style_pick, 0) >= 65],
+                    key=lambda r: r.get("styles", {}).get(_style_pick, 0), reverse=True,
+                )
+            if not _shown:
+                st.info("No stocks in this scan strongly fit that style — try another one or a bigger shortlist.")
+
+            _wl_syms_now  = {t["symbol"] for t in load_watchlist()}
+            _saved_now    = {p["symbol"] for p in get_saved_picks()}
+
+            for _i, _r in enumerate(_shown[:15], 1):
+                _sc = _r.get("score", 0)
+                _c = _score_color(_sc)
+                # Portfolio-fit chips, computed against YOUR holdings/watchlist
+                _fit = []
+                if _r.get("held"):
+                    _fit.append('<span style="background:#fef3c7;color:#b45309;border-radius:99px;padding:2px 9px;font-size:.72rem;font-weight:600">💼 you own this</span>')
+                if _r["symbol"] in _wl_syms_now:
+                    _fit.append('<span style="background:#e0e7ff;color:#4338ca;border-radius:99px;padding:2px 9px;font-size:.72rem;font-weight:600">👁 on your watchlist</span>')
+                if not _r.get("held") and not _r.get("held_in_industry"):
+                    _fit.append('<span style="background:#dcfce7;color:#15803d;border-radius:99px;padding:2px 9px;font-size:.72rem;font-weight:600">🆕 new industry for you</span>')
+                elif not _r.get("held") and _r.get("held_in_industry", 0) >= 3:
+                    _fit.append(f'<span style="background:#fee2e2;color:#b91c1c;border-radius:99px;padding:2px 9px;font-size:.72rem;font-weight:600">⚠️ you already hold {_r["held_in_industry"]} in {_r.get("industry","this sector")}</span>')
+                _style_chips_html = " ".join(
+                    f'<span style="background:#f1f5f9;color:#334155;border-radius:99px;padding:2px 9px;font-size:.72rem;font-weight:600">{c}</span>'
+                    for c in _r.get("style_chips", [])
+                )
+                _why = " · ".join((_r.get("reasons") or [])[:3]) or "Scored across all factors"
+
+                _cc1, _cc2 = st.columns([5, 1])
+                with _cc1:
+                    st.markdown(f"""
+<div style="background:#fff;border:1px solid #eef0f6;border-radius:14px;
+  padding:.9rem 1.2rem;margin-bottom:.15rem;box-shadow:0 1px 6px rgba(0,0,0,.05)">
+  <div style="display:flex;align-items:center;gap:.6rem;flex-wrap:wrap">
+    <span style="background:#eef2ff;color:#6366f1;font-weight:800;border-radius:8px;padding:2px 9px;font-size:.8rem">#{_i}</span>
+    <span style="font-size:1.1rem;font-weight:800;color:#0f172a">{_r['symbol']}</span>
+    {_badge(_r.get('action','Watch'))}
+    <span style="color:{_c};font-weight:700;font-size:.85rem">{_sc:.0f}/100</span>
+    {_style_chips_html}
+    <span style="margin-left:auto;font-size:.76rem;color:#94a3b8">{_r.get('industry','')}</span>
+  </div>
+  <div style="display:flex;align-items:baseline;gap:.8rem;margin-top:.35rem;flex-wrap:wrap">
+    <span style="font-size:.95rem;color:#0f172a"><b>${_r.get('current_price','—')}</b>
+      <span style="color:#94a3b8;font-size:.78rem">now</span></span>
+    <span style="font-size:.95rem;color:#16a34a"><b>${_r.get('target_price','—')}</b>
+      <span style="color:#94a3b8;font-size:.78rem">target (+{_r.get('upside_pct','—')}%)</span></span>
+    <span style="font-size:.74rem;color:#94a3b8">Models: F{_r.get('fund_score','—')} · T{_r.get('tech_score','—')} · S{_r.get('sent_score','—')}</span>
+  </div>
+  <div style="font-size:.78rem;color:#64748b;margin-top:.35rem"><b style="color:#334155">Why:</b> {_why}</div>
+  <div style="margin-top:.4rem;display:flex;gap:.4rem;flex-wrap:wrap">{''.join(_fit)}</div>
+</div>""", unsafe_allow_html=True)
+                with _cc2:
+                    if _r["symbol"] not in _wl_syms_now:
+                        if st.button("➕ Watch", key=f"scan_watch_{_r['symbol']}",
+                                     help="Add to your watchlist so every analysis scores it"):
+                            _wl_new = load_watchlist()
+                            _wl_new.append({"symbol": _r["symbol"], "industry": _r.get("industry", "Misc")})
+                            save_watchlist(_wl_new)
+                            st.rerun()
+                    _is_saved = _r["symbol"] in _saved_now
+                    if st.button("★" if _is_saved else "☆ Save", key=f"scan_save_{_r['symbol']}"):
+                        if _is_saved:
+                            remove_pick(_r["symbol"])
+                        else:
+                            save_pick(_r["symbol"], _r.get("industry", "Misc"))
+                        st.rerun()
+
+            # ── Full tables for the detail-oriented ───────────────────────────
+            with st.expander(f"Full shortlist table ({len(scan_full)} stocks)"):
+                _df_full = pd.DataFrame(scan_full)
+                if "best_style" in _df_full.columns:
+                    _df_full["Style"] = _df_full["best_style"].map(
+                        lambda k: f"{STYLE_META[k]['emoji']} {STYLE_META[k]['label']}" if k in STYLE_META else "—")
+                else:
+                    _df_full["Style"] = "—"
+                _cols = ["symbol","industry","Style","action","score","current_price","target_price","upside_pct"]
+                _df_show = _df_full[[c for c in _cols if c in _df_full.columns]]
+                _df_show.columns = ["Symbol","Industry","Style","Action","Score","Price","Target","Upside %"][:len(_df_show.columns)]
+                st.dataframe(_df_show, width="stretch", height=400)
             with st.expander(f"Pass 1: all {len(scan_pass1)} tickers (cheap score only)"):
                 df_p1 = pd.DataFrame(scan_pass1)[["symbol","industry","fund_score","tech_score","cheap_score"]]
                 df_p1.columns = ["Symbol","Industry","Fund","Tech","Cheap Score"]

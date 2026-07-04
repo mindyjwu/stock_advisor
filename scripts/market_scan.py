@@ -15,18 +15,21 @@ load_dotenv()
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from data.sp500 import load_sp500
-from data.loader import fetch_ticker_info, fetch_price_history, fetch_vix, load_holdings, current_portfolio_value, holdings_by_symbol
+from data.loader import fetch_ticker_info, fetch_price_history, fetch_vix, load_holdings, load_watchlist, current_portfolio_value, holdings_by_symbol
 from agents.fundamentals import score_fundamentals
 from agents.technicals import score_technicals
 from agents.sentiment import score_sentiment_batch
 from agents.regime import detect_regime, aggregate_score
 from agents.position_sizer import compute_suggestion
+from agents.screener import score_styles, diversify_shortlist
 from db.store import init_db, log_suggestion, save_scan
 
 
-def _cheap_score(fund_score: float, tech_score: float) -> float:
-    """Blend of fundamentals + technicals only, used to rank for shortlisting."""
-    return round(fund_score * 0.6 + tech_score * 0.4, 1)
+def _cheap_score(fund_score: float, tech_score: float, best_style_score: float) -> float:
+    """Pre-LLM ranking blend. The style term rewards stocks that are a clear,
+    coherent kind of pick (strong value, strong momentum, …) over ones that
+    are merely mediocre everywhere."""
+    return round(fund_score * 0.45 + tech_score * 0.35 + best_style_score * 0.20, 1)
 
 
 def _scan_one(item):
@@ -36,12 +39,17 @@ def _scan_one(item):
     history = fetch_price_history(symbol, period="3mo")
     fund = score_fundamentals(info)
     tech = score_technicals(history)
+    style = score_styles(info, history)
+    best_style_score = max(style["styles"].values()) if style["styles"] else 50.0
     return {
         "symbol": symbol,
         "industry": item.get("industry", "Unknown"),
         "fund_score": fund["score"],
         "tech_score": tech["score"],
-        "cheap_score": _cheap_score(fund["score"], tech["score"]),
+        "cheap_score": _cheap_score(fund["score"], tech["score"], best_style_score),
+        "styles": style["styles"],
+        "best_style": style["best_style"],
+        "style_chips": style["chips"],
         "info": info,
         "fund_reasons": fund["reasons"],
         "tech_reasons": tech["reasons"],
@@ -80,11 +88,22 @@ def scan_market(user_id: int, shortlist_size: int = 25, status_cb=None, max_work
                 continue
 
     pass1_results.sort(key=lambda x: x["cheap_score"], reverse=True)
-    shortlist = pass1_results[:shortlist_size]
+    # Sector-diverse shortlist: don't let one hot sector crowd out everything
+    shortlist = diversify_shortlist(pass1_results, shortlist_size)
 
     holdings = load_holdings(user_id)
+    watch_symbols = {t["symbol"] for t in load_watchlist(user_id)}
     portfolio_value = current_portfolio_value(holdings)
     by_symbol = holdings_by_symbol(holdings)
+
+    # How many holdings the user already has per industry (for "fits your
+    # portfolio" notes on the scan page)
+    _uni_industry = {u["symbol"]: u.get("industry", "Unknown") for u in universe}
+    held_by_industry = {}
+    for held_sym in by_symbol:
+        ind = _uni_industry.get(held_sym)
+        if ind:
+            held_by_industry[ind] = held_by_industry.get(ind, 0) + 1
 
     if status_cb:
         status_cb(f"Pass 2: scoring sentiment for top {len(shortlist)} with AI (one batch call)...")
@@ -101,6 +120,12 @@ def scan_market(user_id: int, shortlist_size: int = 25, status_cb=None, max_work
         )
         suggestion["industry"] = item["industry"]
         suggestion["headlines"] = sent.get("headlines", [])
+        suggestion["styles"] = item.get("styles", {})
+        suggestion["best_style"] = item.get("best_style")
+        suggestion["style_chips"] = item.get("style_chips", [])
+        suggestion["held"] = symbol in by_symbol
+        suggestion["in_watchlist"] = symbol in watch_symbols
+        suggestion["held_in_industry"] = held_by_industry.get(item["industry"], 0)
         all_reasons = item["fund_reasons"] + item["tech_reasons"] + sent["reasons"]
         suggestion["reasons"] = all_reasons
         suggestion["fund_score"] = item["fund_score"]
