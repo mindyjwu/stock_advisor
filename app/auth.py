@@ -17,13 +17,42 @@ def require_login() -> dict:
         return st.session_state["user"]
 
     st.markdown("""
-    <div style="text-align:center;margin:2.5rem 0 1rem 0">
-      <div style="font-size:2rem;font-weight:800;color:#0f172a">📈 Stock Advisor</div>
-      <div style="color:#64748b;font-size:.95rem;margin-top:.3rem">
+    <style>
+      /* Login-screen polish (loads after the app's global CSS) */
+      [data-testid="stForm"] {
+        background:#fff; border:1px solid #e8ecf4 !important;
+        border-radius:18px !important; padding:1.6rem 1.6rem 1.2rem !important;
+        box-shadow: 0 8px 30px rgba(80,90,200,.08), 0 1px 3px rgba(16,24,40,.05);
+      }
+      [data-testid="stForm"] .stButton > button,
+      [data-testid="stForm"] [data-testid="stFormSubmitButton"] > button {
+        background: linear-gradient(135deg,#6366f1,#8b5cf6) !important;
+        color:#fff !important; border:none !important;
+        border-radius:10px !important; font-weight:700 !important;
+        box-shadow: 0 3px 12px rgba(99,102,241,.35) !important;
+      }
+      .auth-hero-mark {
+        width:56px; height:56px; border-radius:16px; margin:0 auto .8rem;
+        background: linear-gradient(135deg,#6366f1,#8b5cf6);
+        display:flex; align-items:center; justify-content:center;
+        font-size:1.7rem; box-shadow: 0 8px 24px rgba(99,102,241,.35);
+      }
+      .auth-pill {
+        display:inline-block; background:#eef2ff; color:#4f46e5;
+        border:1px solid #dfe4ff; border-radius:999px;
+        padding:3px 12px; font-size:.75rem; font-weight:600; margin:0 .2rem;
+      }
+    </style>
+    <div style="text-align:center;margin:3rem 0 1.4rem 0">
+      <div class="auth-hero-mark">📈</div>
+      <div style="font-size:2rem;font-weight:800;color:#0f172a;letter-spacing:-.03em">Stock Advisor</div>
+      <div style="color:#64748b;font-size:.95rem;margin-top:.4rem;max-width:430px;margin-left:auto;margin-right:auto">
         AI-scored stock ideas and a plain-English investing plan — sized to your own portfolio.
       </div>
-      <div style="color:#94a3b8;font-size:.8rem;margin-top:.4rem">
-        🔒 Your watchlist, portfolio and history are private to your account.
+      <div style="margin-top:.9rem">
+        <span class="auth-pill">🔒 Private per account</span>
+        <span class="auth-pill">🤖 3-factor AI scoring</span>
+        <span class="auth-pill">💰 Deposit-sized plans</span>
       </div>
     </div>
     """, unsafe_allow_html=True)

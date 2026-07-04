@@ -40,23 +40,33 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# ── Global CSS ────────────────────────────────────────────────────────────────
+# ── Global CSS — "clean & airy" design system ────────────────────────────────
 st.markdown("""
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
   html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
 
+  /* ── Canvas: soft off-white so white cards float ── */
+  .stApp { background: #f7f9fc; }
+  [data-testid="stMain"] .block-container { padding: 2.2rem 2.8rem 4rem; max-width: 1280px; }
+
+  /* ── Typography rhythm ── */
+  [data-testid="stMain"] h1 {
+    font-size: 1.8rem; font-weight: 800; letter-spacing: -.025em;
+    color: #0f172a; padding-bottom: 0;
+  }
+  [data-testid="stMain"] h1 + [data-testid="stMarkdownContainer"] p,
+  [data-testid="stMain"] h1 + p { color: #64748b; }
+  [data-testid="stMain"] h2 { font-size: 1.3rem; font-weight: 800; letter-spacing: -.02em; color: #0f172a; }
+  [data-testid="stMain"] h3 { font-size: 1.05rem; font-weight: 700; color: #0f172a; }
+
   /* ── Sidebar shell ── */
   section[data-testid="stSidebar"] {
-    background: #0a0d14 !important;
-    border-right: 1px solid #1a1f2e !important;
+    background: #0b0e15 !important;
+    border-right: 1px solid #171c2a !important;
   }
   section[data-testid="stSidebar"] * { color: #cbd5e1 !important; }
-
-  /* ── Hide the ugly radio widget entirely ── */
   section[data-testid="stSidebar"] .stRadio { display: none !important; }
-
-  /* ── Run Analysis button ── */
   section[data-testid="stSidebar"] .stButton > button {
     background: linear-gradient(135deg,#6366f1,#8b5cf6) !important;
     border: none !important; color: #fff !important;
@@ -68,74 +78,135 @@ st.markdown("""
   }
   section[data-testid="stSidebar"] .stButton > button:hover { opacity: .85; }
 
-  /* ── Sidebar metrics ── */
-  section[data-testid="stSidebar"] [data-testid="stMetric"] {
-    background: #12161f;
-    border: 1px solid #1e2438;
-    border-radius: 10px;
-    padding: .7rem .9rem;
-    margin-bottom: .4rem;
-  }
-  section[data-testid="stSidebar"] [data-testid="stMetricLabel"] p {
-    font-size: .68rem !important; font-weight: 600 !important;
-    letter-spacing: .07em; text-transform: uppercase; color: #64748b !important;
-  }
-  section[data-testid="stSidebar"] [data-testid="stMetricValue"] {
-    font-size: 1.25rem !important; font-weight: 700 !important; color: #f1f5f9 !important;
-  }
-  section[data-testid="stSidebar"] [data-testid="stMetricDelta"] {
-    font-size: .75rem !important;
-  }
-
-  /* ── Main content ── */
-  .main .block-container { padding: 2rem 2.5rem; max-width: 1340px; }
-
-  /* ── KPI cards ── */
+  /* ── Card system ── */
   .metric-card {
-    background: #fff; border: 1px solid #eef0f6;
-    border-radius: 14px; padding: 1.25rem 1.5rem;
-    box-shadow: 0 1px 6px rgba(0,0,0,.05);
+    background: #fff; border: 1px solid #e8ecf4;
+    border-radius: 16px; padding: 1.15rem 1.4rem;
+    box-shadow: 0 1px 2px rgba(16,24,40,.04), 0 2px 6px rgba(16,24,40,.04);
+    transition: box-shadow .18s ease, transform .18s ease;
   }
-  .metric-label { font-size:.72rem; font-weight:700; letter-spacing:.08em;
-    color:#94a3b8; text-transform:uppercase; }
-  .metric-value { font-size:1.8rem; font-weight:800; color:#0f172a; margin-top:.25rem; line-height:1.1; }
-  .metric-sub   { font-size:.8rem; color:#94a3b8; margin-top:.3rem; }
+  .metric-card:hover {
+    box-shadow: 0 4px 14px rgba(16,24,40,.08);
+    transform: translateY(-1px);
+  }
+  .metric-label { font-size:.7rem; font-weight:700; letter-spacing:.09em;
+    color:#8a94a6; text-transform:uppercase; }
+  .metric-value { font-size:1.7rem; font-weight:800; color:#0f172a; margin-top:.3rem;
+    line-height:1.1; letter-spacing:-.02em; font-variant-numeric: tabular-nums; }
+  .metric-sub   { font-size:.8rem; color:#8a94a6; margin-top:.35rem; }
 
-  /* ── Badges ── */
-  .badge { display:inline-block; padding:3px 11px; border-radius:999px; font-size:.76rem; font-weight:700; }
-  .badge-strong-buy { background:#dcfce7; color:#15803d; }
-  .badge-buy        { background:#dbeafe; color:#1d4ed8; }
-  .badge-watch      { background:#fef3c7; color:#b45309; }
-  .badge-avoid      { background:#fee2e2; color:#b91c1c; }
+  /* ── Badges: softer pastels ── */
+  .badge { display:inline-block; padding:3px 11px; border-radius:999px;
+    font-size:.75rem; font-weight:600; letter-spacing:.01em; }
+  .badge-strong-buy { background:#e7f9ef; color:#127a45; }
+  .badge-buy        { background:#e8f0fe; color:#1a56db; }
+  .badge-watch      { background:#fdf3d8; color:#a16207; }
+  .badge-avoid      { background:#fde8e8; color:#c81e1e; }
 
-  /* ── Section headers ── */
+  /* ── Section headers: airy eyebrow style ── */
   .section-header {
-    font-size:1rem; font-weight:700; color:#0f172a;
-    padding-bottom:.5rem; border-bottom:2px solid #f1f5f9; margin-bottom:1.1rem;
-    letter-spacing:.01em;
+    font-size:.98rem; font-weight:700; color:#0f172a; letter-spacing:-.01em;
+    padding-bottom:.55rem; border-bottom:1px solid #edf1f7;
+    margin: 1.4rem 0 1rem 0;
   }
 
   /* ── Score bars ── */
-  .score-bar-bg   { background:#f1f5f9; border-radius:999px; height:6px; width:100%; }
-  .score-bar-fill { height:6px; border-radius:999px; }
+  .score-bar-bg   { background:#eef1f7; border-radius:999px; height:6px; width:100%; }
+  .score-bar-fill { height:6px; border-radius:999px; transition: width .3s ease; }
 
-  /* ── Regime banner ── */
+  /* ── Regime banner: glassy indigo ── */
   .regime-banner {
-    background: linear-gradient(135deg,#4f46e5 0%,#7c3aed 100%);
-    border-radius:14px; padding:1rem 1.5rem; color:white;
+    background: linear-gradient(120deg,#4f46e5 0%,#7c3aed 90%);
+    border-radius:16px; padding:1.1rem 1.5rem; color:white;
+    box-shadow: 0 6px 20px rgba(99,102,241,.25);
   }
-  .regime-key { font-size:1.05rem; font-weight:700; }
+  .regime-key { font-size:1.05rem; font-weight:700; letter-spacing:-.01em; }
   .regime-sub { font-size:.82rem; opacity:.85; }
 
   /* ── Warning banner ── */
   .warn-banner {
-    background:#fffbeb; border:1px solid #fcd34d;
-    border-radius:10px; padding:.8rem 1.2rem;
+    background:#fffbeb; border:1px solid #fde68a;
+    border-radius:12px; padding:.85rem 1.2rem;
     font-size:.9rem; color:#92400e;
   }
 
+  /* ── Main-area buttons: quiet secondary style ── */
+  [data-testid="stMain"] .stButton > button {
+    background:#fff; color:#334155;
+    border:1px solid #dfe5ef; border-radius:10px;
+    font-weight:600; font-size:.85rem;
+    box-shadow: 0 1px 2px rgba(16,24,40,.04);
+    transition: all .15s ease;
+  }
+  [data-testid="stMain"] .stButton > button:hover {
+    border-color:#a5b4fc; color:#4f46e5; background:#f5f6ff;
+  }
+  [data-testid="stMain"] .stButton > button[kind="primary"] {
+    background: linear-gradient(135deg,#6366f1,#8b5cf6);
+    color:#fff; border:none; box-shadow: 0 2px 10px rgba(99,102,241,.3);
+  }
+
+  /* ── Tabs → floating pills ── */
+  [data-testid="stMain"] .stTabs [data-baseweb="tab-list"] {
+    gap:.4rem; background:transparent; border-bottom:1px solid #edf1f7;
+    padding-bottom:.4rem;
+  }
+  [data-testid="stMain"] .stTabs [data-baseweb="tab"] {
+    background:#fff; border:1px solid #e8ecf4; border-radius:999px;
+    padding:.3rem 1.1rem; font-weight:600; color:#64748b;
+  }
+  [data-testid="stMain"] .stTabs [aria-selected="true"] {
+    background:#eef2ff; border-color:#c7d2fe; color:#4f46e5;
+  }
+  [data-testid="stMain"] .stTabs [data-baseweb="tab-highlight"],
+  [data-testid="stMain"] .stTabs [data-baseweb="tab-border"] { display:none; }
+
+  /* ── Horizontal radios → segmented pills ── */
+  [data-testid="stMain"] div[role="radiogroup"] { gap:.45rem; }
+  [data-testid="stMain"] div[role="radiogroup"] > label {
+    background:#fff; border:1px solid #e2e7f0; border-radius:999px;
+    padding:.32rem .85rem .32rem .6rem; margin:0;
+    box-shadow: 0 1px 2px rgba(16,24,40,.03);
+    transition: all .15s ease; cursor:pointer;
+  }
+  [data-testid="stMain"] div[role="radiogroup"] > label:hover { border-color:#a5b4fc; }
+  [data-testid="stMain"] div[role="radiogroup"] > label:has(input:checked) {
+    background:#eef2ff; border-color:#818cf8;
+    box-shadow: 0 1px 6px rgba(99,102,241,.18);
+  }
+  [data-testid="stMain"] div[role="radiogroup"] > label:has(input:checked) p { color:#4338ca; font-weight:600; }
+
+  /* ── Expanders as cards ── */
+  [data-testid="stMain"] [data-testid="stExpander"] {
+    background:#fff; border:1px solid #e8ecf4 !important;
+    border-radius:14px !important;
+    box-shadow: 0 1px 2px rgba(16,24,40,.03);
+    overflow:hidden;
+  }
+  [data-testid="stMain"] [data-testid="stExpander"] summary { font-weight:600; color:#334155; }
+  [data-testid="stMain"] [data-testid="stExpander"] summary:hover { color:#4f46e5; }
+
+  /* ── Inputs ── */
+  [data-testid="stMain"] [data-baseweb="input"],
+  [data-testid="stMain"] [data-baseweb="select"] > div,
+  [data-testid="stMain"] [data-testid="stNumberInputContainer"] {
+    border-radius:10px !important;
+  }
+
+  /* ── Data tables & code ── */
   thead th { background:#f8fafc !important; }
-  .stDataFrame { border-radius:12px; overflow:hidden; }
+  .stDataFrame { border-radius:14px; overflow:hidden; border:1px solid #e8ecf4; }
+  [data-testid="stMain"] [data-testid="stCode"] pre,
+  [data-testid="stMain"] pre {
+    border-radius:12px !important; border:1px solid #e8ecf4;
+  }
+
+  /* ── Dialog / misc polish ── */
+  div[data-testid="stDialog"] > div { border-radius:18px; }
+  [data-testid="stMain"] hr { border-color:#edf1f7; }
+  ::-webkit-scrollbar { width:10px; height:10px; }
+  ::-webkit-scrollbar-thumb { background:#d7dce7; border-radius:99px; }
+  ::-webkit-scrollbar-track { background:transparent; }
   #MainMenu, footer { visibility:hidden; }
 </style>
 """, unsafe_allow_html=True)
@@ -377,7 +448,13 @@ with st.sidebar:
 <div style="padding:.5rem .5rem .2rem .5rem">
   <div style="font-size:1rem;font-weight:800;color:#f1f5f9;letter-spacing:-.01em">📈 Stock Advisor</div>
   <div style="font-size:.65rem;color:#475569">AI portfolio advisor</div>
-  <div style="font-size:.72rem;color:#94a3b8;margin-top:.3rem">👤 {USER['display_name']}{' · owner' if USER.get('is_owner') else ''}</div>
+  <div style="display:flex;align-items:center;gap:.45rem;margin-top:.5rem">
+    <div style="width:22px;height:22px;border-radius:50%;background:linear-gradient(135deg,#6366f1,#8b5cf6);
+      display:flex;align-items:center;justify-content:center;font-size:.68rem;font-weight:700;color:#fff !important;
+      box-shadow:0 1px 4px rgba(99,102,241,.4)">{(USER['display_name'] or 'U')[0].upper()}</div>
+    <span style="font-size:.75rem;color:#cbd5e1;font-weight:600">{USER['display_name']}</span>
+    {'<span style="background:#312e81;color:#a5b4fc;border-radius:99px;padding:1px 7px;font-size:.6rem;font-weight:700;letter-spacing:.04em">OWNER</span>' if USER.get('is_owner') else ''}
+  </div>
 </div>
 <div style="border-top:1px solid #1e2438;margin:.3rem 0 .2rem 0"></div>
 """, unsafe_allow_html=True)
