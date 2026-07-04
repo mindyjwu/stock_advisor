@@ -15,7 +15,10 @@ load_dotenv()
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from data.sp500 import load_sp500
-from data.loader import fetch_ticker_info, fetch_price_history, fetch_vix, load_holdings, load_watchlist, current_portfolio_value, holdings_by_symbol
+from data.loader import (
+    fetch_ticker_info, fetch_price_history, fetch_price_history_bulk, fetch_vix,
+    load_holdings, load_watchlist, current_portfolio_value, holdings_by_symbol,
+)
 from agents.fundamentals import score_fundamentals
 from agents.technicals import score_technicals
 from agents.sentiment import score_sentiment_batch
@@ -32,11 +35,13 @@ def _cheap_score(fund_score: float, tech_score: float, best_style_score: float) 
     return round(fund_score * 0.45 + tech_score * 0.35 + best_style_score * 0.20, 1)
 
 
-def _scan_one(item):
-    """Fetch + cheap-score one ticker. Runs in a thread."""
+def _scan_one(item, history=None):
+    """Fetch + cheap-score one ticker. Runs in a thread. `history` comes from
+    the bulk download; falls back to a per-ticker fetch if missing."""
     symbol = item["symbol"]
     info = fetch_ticker_info(symbol)
-    history = fetch_price_history(symbol, period="3mo")
+    if history is None:
+        history = fetch_price_history(symbol, period="3mo")
     fund = score_fundamentals(info)
     tech = score_technicals(history)
     style = score_styles(info, history)
@@ -75,8 +80,15 @@ def scan_market(user_id: int, shortlist_size: int = 25, status_cb=None, max_work
     universe = load_sp500()
     pass1_results = []
 
+    if status_cb:
+        status_cb(f"Bulk-downloading 3-month prices for {len(universe)} tickers...")
+    hist_map = fetch_price_history_bulk([u["symbol"] for u in universe], period="3mo")
+
+    if status_cb:
+        status_cb("Scoring fundamentals + technicals in parallel...")
     with ThreadPoolExecutor(max_workers=max_workers) as ex:
-        futures = {ex.submit(_scan_one, item): item["symbol"] for item in universe}
+        futures = {ex.submit(_scan_one, item, hist_map.get(item["symbol"])): item["symbol"]
+                   for item in universe}
         done = 0
         for fut in as_completed(futures):
             done += 1
@@ -126,6 +138,17 @@ def scan_market(user_id: int, shortlist_size: int = 25, status_cb=None, max_work
         suggestion["held"] = symbol in by_symbol
         suggestion["in_watchlist"] = symbol in watch_symbols
         suggestion["held_in_industry"] = held_by_industry.get(item["industry"], 0)
+        _info = item.get("info") or {}
+        suggestion["stats"] = {
+            "market_cap":     _info.get("marketCap"),
+            "pe":             _info.get("trailingPE"),
+            "day_change_pct": _info.get("regularMarketChangePercent"),
+            "wk52_change":    _info.get("52WeekChange"),
+            "profit_margin":  _info.get("profitMargins"),
+            "rev_growth":     _info.get("revenueGrowth"),
+            "div_yield":      _info.get("dividendYield"),
+            "beta":           _info.get("beta"),
+        }
         all_reasons = item["fund_reasons"] + item["tech_reasons"] + sent["reasons"]
         suggestion["reasons"] = all_reasons
         suggestion["fund_score"] = item["fund_score"]

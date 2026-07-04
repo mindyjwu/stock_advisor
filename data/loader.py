@@ -59,11 +59,69 @@ def load_holdings(user_id: int) -> dict:
         return json.load(f)
 
 
+INFO_CACHE_DIR = ROOT / "data" / "cache" / "info"
+INFO_CACHE_TTL_SECONDS = 15 * 60  # fresh enough for prices, avoids re-fetching 500 tickers
+
+
 # maxsize must cover a full ~500-ticker S&P scan, or the cache thrashes
 @lru_cache(maxsize=1024)
 def fetch_ticker_info(symbol: str) -> dict:
+    # Disk cache layer: makes repeat scans near-instant across app restarts
+    cache_file = INFO_CACHE_DIR / f"{symbol.upper()}.json"
+    try:
+        import time
+        if cache_file.exists() and time.time() - cache_file.stat().st_mtime < INFO_CACHE_TTL_SECONDS:
+            with open(cache_file) as f:
+                return json.load(f)
+    except Exception:
+        pass
     t = yf.Ticker(symbol)
-    return t.info or {}
+    info = t.info or {}
+    try:
+        INFO_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        with open(cache_file, "w") as f:
+            json.dump(info, f, default=str)
+    except Exception:
+        pass
+    return info
+
+
+def fetch_price_history_bulk(symbols: list, period: str = "3mo", chunk_size: int = 60) -> dict:
+    """Download price history for MANY tickers in a few batched yfinance
+    requests — dramatically faster than one call per ticker for a market scan.
+    yfinance's own threads=True is broken in 1.x, so we chunk the universe and
+    parallelize the chunks ourselves. Returns {symbol: DataFrame}; symbols
+    that fail are simply absent."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    out = {}
+    if not symbols:
+        return out
+    chunks = [symbols[i:i + chunk_size] for i in range(0, len(symbols), chunk_size)]
+
+    def _one_chunk(chunk):
+        try:
+            return chunk, yf.download(
+                tickers=" ".join(chunk), period=period, group_by="ticker",
+                threads=False, progress=False,
+            )
+        except Exception:
+            return chunk, None
+
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        for chunk, df in ex.map(_one_chunk, chunks):
+            if df is None or df.empty:
+                continue
+            for s in chunk:
+                try:
+                    sub = df[s].dropna(how="all") if len(chunk) > 1 else df.dropna(how="all")
+                    if not sub.empty:
+                        sub = sub.copy()
+                        sub.index = sub.index.tz_localize(None)
+                        out[s] = sub
+                except Exception:
+                    continue
+    return out
 
 
 @lru_cache(maxsize=1024)

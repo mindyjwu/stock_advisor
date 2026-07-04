@@ -1368,6 +1368,10 @@ elif page == "Invest Cash":
     # ── Step 1: how much? ─────────────────────────────────────────────────────
     st.markdown('<div class="section-header">Step 1 — How much do you want to invest?</div>', unsafe_allow_html=True)
     _default_dep = round(_avail_cash) if _avail_cash >= 50 else 1000.0
+    # Quick-pick buttons can't write to the widget's key after it renders
+    # (StreamlitAPIException) — they stage the value here, applied pre-render
+    if "deposit_pending" in st.session_state:
+        st.session_state["deposit_amt"] = float(st.session_state.pop("deposit_pending"))
     if "deposit_amt" not in st.session_state:
         st.session_state["deposit_amt"] = float(_default_dep)
 
@@ -1384,11 +1388,11 @@ elif page == "Invest Cash":
         _presets = [500, 1000, 2500, 5000]
         for _i, _amt in enumerate(_presets):
             if _pcols[_i].button(f"${_amt:,}", key=f"preset_{_amt}"):
-                st.session_state["deposit_amt"] = float(_amt)
+                st.session_state["deposit_pending"] = float(_amt)
                 st.rerun()
         if _avail_cash >= 50:
             if _pcols[4].button(f"My cash (${_avail_cash:,.0f})", key="preset_cash"):
-                st.session_state["deposit_amt"] = float(round(_avail_cash))
+                st.session_state["deposit_pending"] = float(round(_avail_cash))
                 st.rerun()
 
     # ── Step 2: risk style ────────────────────────────────────────────────────
@@ -1441,9 +1445,24 @@ elif page == "Invest Cash":
             help="Fewer stocks = more concentrated. More stocks = more diversified.",
         )
 
+    # Aggressive mode digs beyond your watchlist: pull in high scorers from
+    # your last market scan — often smaller, less obvious names
+    plan_candidates = results
+    if profile_key == "aggressive":
+        _scan_saved = get_last_scan()
+        if _scan_saved and _scan_saved.get("full"):
+            _known_syms = {r["symbol"] for r in results}
+            _extra = [r for r in _scan_saved["full"]
+                      if r["symbol"] not in _known_syms and r.get("score", 0) >= 60]
+            if _extra:
+                plan_candidates = results + _extra
+                st.caption(f"🚀 Aggressive mode also considers {len(_extra)} discoveries from your last "
+                           f"market scan: {', '.join(r['symbol'] for r in _extra[:6])}"
+                           f"{'…' if len(_extra) > 6 else ''}")
+
     # ── Build the plan (pure computation — instant) ───────────────────────────
     plan = build_plan(
-        deposit, results, holdings, profile_key,
+        deposit, plan_candidates, holdings, profile_key,
         weights=custom_weights, allow_fractional=allow_frac,
         max_positions=max_pos_override,
     )
@@ -1674,6 +1693,52 @@ elif page == "Scan & Alerts":
             _wl_syms_now  = {t["symbol"] for t in load_watchlist()}
             _saved_now    = {p["symbol"] for p in get_saved_picks()}
 
+            def _fmt_cap(mc):
+                try:
+                    mc = float(mc)
+                except (TypeError, ValueError):
+                    return None
+                if mc >= 1e12: return f"${mc/1e12:.1f}T"
+                if mc >= 1e9:  return f"${mc/1e9:.1f}B"
+                return f"${mc/1e6:.0f}M"
+
+            def _cap_label(mc):
+                try:
+                    mc = float(mc)
+                except (TypeError, ValueError):
+                    return None
+                if mc >= 2e11: return "mega-cap"
+                if mc >= 1e10: return "large-cap"
+                if mc >= 2e9:  return "mid-cap"
+                return "small-cap"
+
+            def _sv(v, kind="num"):
+                """Safe stat formatting for tooltips/deep-dive."""
+                if v is None: return "—"
+                try:
+                    v = float(v)
+                except (TypeError, ValueError):
+                    return "—"
+                if math.isnan(v) or math.isinf(v): return "—"
+                if kind == "pct_frac": return f"{v*100:+.1f}%"
+                if kind == "pct":      return f"{v:+.2f}%"
+                if kind == "yield":    return f"{(v*100 if v < 1 else v):.2f}%"
+                return f"{v:.1f}"
+
+            def _stats_lines(_stats):
+                cap_txt = _fmt_cap(_stats.get("market_cap"))
+                cap_lbl = _cap_label(_stats.get("market_cap"))
+                return [
+                    f"Market cap: {cap_txt or '—'}" + (f" ({cap_lbl})" if cap_lbl else ""),
+                    f"P/E ratio: {_sv(_stats.get('pe'))}",
+                    f"Today: {_sv(_stats.get('day_change_pct'), 'pct')}",
+                    f"52-week change: {_sv(_stats.get('wk52_change'), 'pct_frac')}",
+                    f"Profit margin: {_sv(_stats.get('profit_margin'), 'pct_frac')}",
+                    f"Revenue growth: {_sv(_stats.get('rev_growth'), 'pct_frac')}",
+                    f"Dividend yield: {_sv(_stats.get('div_yield'), 'yield')}",
+                    f"Beta (volatility vs market): {_sv(_stats.get('beta'))}",
+                ]
+
             for _i, _r in enumerate(_shown[:15], 1):
                 _sc = _r.get("score", 0)
                 _c = _score_color(_sc)
@@ -1692,30 +1757,39 @@ elif page == "Scan & Alerts":
                     for c in _r.get("style_chips", [])
                 )
                 _why = " · ".join((_r.get("reasons") or [])[:3]) or "Scored across all factors"
+                _stats_r = _r.get("stats") or {}
+                _tooltip = "📊 Live stats — " + _r["symbol"] + "&#10;" + "&#10;".join(_stats_lines(_stats_r))
+                _cap_chip = ""
+                if _cap_label(_stats_r.get("market_cap")):
+                    _cap_chip = (f'<span style="background:#ede9fe;color:#6d28d9;border-radius:99px;'
+                                 f'padding:2px 9px;font-size:.72rem;font-weight:600">'
+                                 f'🏢 {_fmt_cap(_stats_r.get("market_cap"))} {_cap_label(_stats_r.get("market_cap"))}</span>')
 
                 _cc1, _cc2 = st.columns([5, 1])
                 with _cc1:
-                    st.markdown(f"""
-<div style="background:#fff;border:1px solid #eef0f6;border-radius:14px;
-  padding:.9rem 1.2rem;margin-bottom:.15rem;box-shadow:0 1px 6px rgba(0,0,0,.05)">
-  <div style="display:flex;align-items:center;gap:.6rem;flex-wrap:wrap">
-    <span style="background:#eef2ff;color:#6366f1;font-weight:800;border-radius:8px;padding:2px 9px;font-size:.8rem">#{_i}</span>
-    <span style="font-size:1.1rem;font-weight:800;color:#0f172a">{_r['symbol']}</span>
-    {_badge(_r.get('action','Watch'))}
-    <span style="color:{_c};font-weight:700;font-size:.85rem">{_sc:.0f}/100</span>
-    {_style_chips_html}
-    <span style="margin-left:auto;font-size:.76rem;color:#94a3b8">{_r.get('industry','')}</span>
-  </div>
-  <div style="display:flex;align-items:baseline;gap:.8rem;margin-top:.35rem;flex-wrap:wrap">
-    <span style="font-size:.95rem;color:#0f172a"><b>${_r.get('current_price','—')}</b>
-      <span style="color:#94a3b8;font-size:.78rem">now</span></span>
-    <span style="font-size:.95rem;color:#16a34a"><b>${_r.get('target_price','—')}</b>
-      <span style="color:#94a3b8;font-size:.78rem">target (+{_r.get('upside_pct','—')}%)</span></span>
-    <span style="font-size:.74rem;color:#94a3b8">Models: F{_r.get('fund_score','—')} · T{_r.get('tech_score','—')} · S{_r.get('sent_score','—')}</span>
-  </div>
-  <div style="font-size:.78rem;color:#64748b;margin-top:.35rem"><b style="color:#334155">Why:</b> {_why}</div>
-  <div style="margin-top:.4rem;display:flex;gap:.4rem;flex-wrap:wrap">{''.join(_fit)}</div>
-</div>""", unsafe_allow_html=True)
+                    # Built as ONE line: indented/blank lines inside st.markdown
+                    # HTML get re-parsed as markdown code blocks (raw-HTML bug)
+                    _card_html = (
+                        f'<div title="{_tooltip}" style="background:#fff;border:1px solid #eef0f6;border-radius:14px;padding:.9rem 1.2rem;margin-bottom:.15rem;box-shadow:0 1px 6px rgba(0,0,0,.05);cursor:help">'
+                        f'<div style="display:flex;align-items:center;gap:.6rem;flex-wrap:wrap">'
+                        f'<span style="background:#eef2ff;color:#6366f1;font-weight:800;border-radius:8px;padding:2px 9px;font-size:.8rem">#{_i}</span>'
+                        f'<span style="font-size:1.1rem;font-weight:800;color:#0f172a">{_r["symbol"]}</span>'
+                        f'{_badge(_r.get("action", "Watch"))}'
+                        f'<span style="color:{_c};font-weight:700;font-size:.85rem">{_sc:.0f}/100</span>'
+                        f'{_style_chips_html}{_cap_chip}'
+                        f'<span style="margin-left:auto;font-size:.76rem;color:#94a3b8">{_r.get("industry", "")}</span>'
+                        f'</div>'
+                        f'<div style="display:flex;align-items:baseline;gap:.8rem;margin-top:.35rem;flex-wrap:wrap">'
+                        f'<span style="font-size:.95rem;color:#0f172a"><b>${_r.get("current_price", "—")}</b> <span style="color:#94a3b8;font-size:.78rem">now</span></span>'
+                        f'<span style="font-size:.95rem;color:#16a34a"><b>${_r.get("target_price", "—")}</b> <span style="color:#94a3b8;font-size:.78rem">target (+{_r.get("upside_pct", "—")}%)</span></span>'
+                        f'<span style="font-size:.74rem;color:#94a3b8">Models: F{_r.get("fund_score", "—")} · T{_r.get("tech_score", "—")} · S{_r.get("sent_score", "—")}</span>'
+                        f'<span style="font-size:.72rem;color:#c4b5fd">ℹ️ hover for live stats</span>'
+                        f'</div>'
+                        f'<div style="font-size:.78rem;color:#64748b;margin-top:.35rem"><b style="color:#334155">Why:</b> {_why}</div>'
+                        f'<div style="margin-top:.4rem;display:flex;gap:.4rem;flex-wrap:wrap">{"".join(_fit)}</div>'
+                        f'</div>'
+                    )
+                    st.markdown(_card_html, unsafe_allow_html=True)
                 with _cc2:
                     if _r["symbol"] not in _wl_syms_now:
                         if st.button("➕ Watch", key=f"scan_watch_{_r['symbol']}",
@@ -1732,8 +1806,71 @@ elif page == "Scan & Alerts":
                             save_pick(_r["symbol"], _r.get("industry", "Misc"))
                         st.rerun()
 
+            # ── Deep-dive dialog (opens when a table row is clicked) ─────────
+            @st.dialog("🔎 Stock Deep Dive", width="large")
+            def _deep_dive(_rr):
+                _s = _rr.get("stats") or {}
+                st.markdown(f"## {_rr['symbol']}  ·  {_rr.get('industry','')}")
+                _dd_chips = " ".join([_badge(_rr.get("action", "Watch"))] + [
+                    f'<span style="background:#f1f5f9;color:#334155;border-radius:99px;padding:2px 9px;font-size:.75rem;font-weight:600">{c}</span>'
+                    for c in _rr.get("style_chips", [])
+                ])
+                st.markdown(_dd_chips + f' <b style="color:{_score_color(_rr.get("score",0))}">{_rr.get("score",0):.0f}/100 overall</b>',
+                            unsafe_allow_html=True)
+
+                _g1, _g2, _g3, _g4 = st.columns(4)
+                for _col, _lbl, _val in (
+                    (_g1, "Price now", f"${_rr.get('current_price','—')}"),
+                    (_g2, "Target", f"${_rr.get('target_price','—')} (+{_rr.get('upside_pct','—')}%)"),
+                    (_g3, "Market cap", (_fmt_cap(_s.get("market_cap")) or "—")
+                        + (f" · {_cap_label(_s.get('market_cap'))}" if _cap_label(_s.get("market_cap")) else "")),
+                    (_g4, "Today", _sv(_s.get("day_change_pct"), "pct")),
+                ):
+                    _col.markdown(f'<div class="metric-card" style="padding:.8rem 1rem"><div class="metric-label">{_lbl}</div>'
+                                  f'<div style="font-size:1.05rem;font-weight:700;color:#0f172a">{_val}</div></div>',
+                                  unsafe_allow_html=True)
+
+                try:
+                    _hist6 = fetch_price_history(_rr["symbol"], "6mo")
+                    _hc = "#16a34a" if _hist6["Close"].iloc[-1] >= _hist6["Close"].iloc[0] else "#dc2626"
+                    _fig_dd = go.Figure(go.Scatter(x=_hist6.index, y=_hist6["Close"], mode="lines",
+                                                   line=dict(color=_hc, width=2), fill="tozeroy",
+                                                   fillcolor="rgba(99,102,241,.06)"))
+                    _fig_dd.update_layout(height=260, margin=dict(l=10, r=10, t=25, b=10),
+                                          title="6-month price", title_font_size=13,
+                                          paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                                          yaxis=dict(gridcolor="#f1f5f9", tickprefix="$"), xaxis=dict(showgrid=False))
+                    st.plotly_chart(_fig_dd, width="stretch", config={"displayModeBar": False})
+                except Exception:
+                    st.caption("Price chart unavailable right now.")
+
+                _st1, _st2 = st.columns(2)
+                with _st1:
+                    st.markdown("**Key statistics**")
+                    for _line in _stats_lines(_s):
+                        st.markdown(f"<div style='font-size:.85rem;color:#475569;padding:.1rem 0'>{_line}</div>",
+                                    unsafe_allow_html=True)
+                with _st2:
+                    st.markdown("**Model scores**")
+                    for _lbl2, _v2, _c2 in (("Quantitative Performance", _rr.get("fund_score"), "#6366f1"),
+                                            ("Trend & Momentum", _rr.get("tech_score"), "#f59e0b"),
+                                            ("Market Sentiment (AI)", _rr.get("sent_score"), "#10b981")):
+                        _v2 = _safe_float(_v2, 0)
+                        st.markdown(f"<div style='font-size:.8rem;color:#475569;margin-top:.3rem'>{_lbl2} — <b>{_v2:.0f}/100</b></div>"
+                                    + _score_bar(_v2, _c2), unsafe_allow_html=True)
+                    if _rr.get("reasons"):
+                        st.markdown("**Why the AI likes / dislikes it**")
+                        for _rs in _rr["reasons"][:5]:
+                            st.markdown(f"- {_rs}")
+                _hl = _rr.get("headlines", [])
+                if _hl:
+                    st.markdown("**Recent news**")
+                    for _h in _hl[:4]:
+                        st.markdown(f"📰 {_h}")
+                st.caption("Educational tool, not financial advice.")
+
             # ── Full tables for the detail-oriented ───────────────────────────
-            with st.expander(f"Full shortlist table ({len(scan_full)} stocks)"):
+            with st.expander(f"Full shortlist table ({len(scan_full)} stocks) — click a row for a deep dive"):
                 _df_full = pd.DataFrame(scan_full)
                 if "best_style" in _df_full.columns:
                     _df_full["Style"] = _df_full["best_style"].map(
@@ -1743,11 +1880,85 @@ elif page == "Scan & Alerts":
                 _cols = ["symbol","industry","Style","action","score","current_price","target_price","upside_pct"]
                 _df_show = _df_full[[c for c in _cols if c in _df_full.columns]]
                 _df_show.columns = ["Symbol","Industry","Style","Action","Score","Price","Target","Upside %"][:len(_df_show.columns)]
-                st.dataframe(_df_show, width="stretch", height=400)
+                _tbl_sel = st.dataframe(_df_show, width="stretch", height=400,
+                                        on_select="rerun", selection_mode="single-row", key="scan_tbl_sel")
+                st.caption("👆 Click any row to open a full deep dive: price chart, statistics, model scores, and news.")
+                try:
+                    _sel_rows = _tbl_sel.selection.rows
+                except Exception:
+                    _sel_rows = []
+                if _sel_rows:
+                    _sel_sym = _df_show.iloc[_sel_rows[0]]["Symbol"]
+                    if st.session_state.get("deep_dive_last") != _sel_sym:
+                        st.session_state["deep_dive_last"] = _sel_sym
+                        _sel_match = next((r for r in scan_full if r["symbol"] == _sel_sym), None)
+                        if _sel_match:
+                            _deep_dive(_sel_match)
+                else:
+                    st.session_state.pop("deep_dive_last", None)
             with st.expander(f"Pass 1: all {len(scan_pass1)} tickers (cheap score only)"):
                 df_p1 = pd.DataFrame(scan_pass1)[["symbol","industry","fund_score","tech_score","cheap_score"]]
                 df_p1.columns = ["Symbol","Industry","Fund","Tech","Cheap Score"]
                 st.dataframe(df_p1, width="stretch", height=380)
+
+            # ── Niche ideas: AI traces your winners' supply chains ──────────
+            st.markdown('<div class="section-header" style="margin-top:1rem">🔗 Niche Ideas From Your Winners</div>', unsafe_allow_html=True)
+            st.markdown("""<div style="font-size:.8rem;color:#64748b;margin-bottom:.5rem">
+              AI looks at your best-performing holdings, traces their supply chains
+              (e.g. AI chips → datacenters → electricity → grid equipment), and finds
+              smaller public companies riding the same wave — names a big-cap scan won't surface.
+              Every suggestion is validated against live market data before it's shown.
+            </div>""", unsafe_allow_html=True)
+            if st.button("🔗 Trace my winners' supply chains", key="supply_btn"):
+                with st.spinner("Mapping supply chains with AI, then validating every ticker against live data…"):
+                    from agents.supply_chain import discover_niche_ideas
+                    os.environ["ADVISOR_AI_MODEL"] = st.session_state.get("ai_model_id", "claude-sonnet-4-6")
+                    _h_now = load_holdings()
+                    _excl = ({p["symbol"] for p in _h_now.get("positions", [])}
+                             | {t["symbol"] for t in load_watchlist()})
+                    st.session_state["supply_ideas"] = discover_niche_ideas(_h_now, _excl)
+
+            _si = st.session_state.get("supply_ideas")
+            if _si:
+                if _si.get("error"):
+                    st.warning(_si["error"])
+                elif not _si.get("ideas"):
+                    st.info("The AI's suggestions didn't survive live-data validation — try again in a moment.")
+                else:
+                    st.caption(f"Traced from your winners: {' · '.join(_si['winners'])}")
+                    for _idea in _si["ideas"]:
+                        _ic1, _ic2 = st.columns([5, 1])
+                        _icap = ""
+                        if _cap_label(_idea.get("market_cap")):
+                            _icap = (f'<span style="background:#ede9fe;color:#6d28d9;border-radius:99px;padding:2px 9px;'
+                                     f'font-size:.72rem;font-weight:600">🏢 {_fmt_cap(_idea.get("market_cap"))} {_cap_label(_idea.get("market_cap"))}</span>')
+                        _iwhy = " · ".join(_idea.get("reasons", [])[:2])
+                        with _ic1:
+                            st.markdown(
+                                f'<div style="background:#fff;border:1px solid #eef0f6;border-radius:14px;padding:.8rem 1.1rem;margin-bottom:.15rem;box-shadow:0 1px 6px rgba(0,0,0,.05)">'
+                                f'<div style="display:flex;align-items:center;gap:.6rem;flex-wrap:wrap">'
+                                f'<span style="font-size:1.05rem;font-weight:800;color:#0f172a">{_idea["symbol"]}</span>'
+                                f'<span style="font-size:.8rem;color:#64748b">{_idea.get("company","")}</span>'
+                                f'{_icap}'
+                                f'<span style="background:#e0f2fe;color:#0369a1;border-radius:99px;padding:2px 9px;font-size:.72rem;font-weight:600">🔗 via your {_idea.get("via","winner")}</span>'
+                                f'<span style="margin-left:auto;font-weight:700;color:{_score_color(_idea.get("cheap_score",50))}">{_idea.get("cheap_score","—")}/100</span>'
+                                f'</div>'
+                                f'<div style="font-size:.8rem;color:#334155;margin-top:.3rem"><b>The connection:</b> {_idea.get("connection","")}</div>'
+                                f'<div style="display:flex;gap:.8rem;margin-top:.3rem;font-size:.76rem;color:#94a3b8">'
+                                f'<span>${_idea.get("price","—")} now</span>'
+                                f'<span>Models: F{_idea.get("fund_score","—")} · T{_idea.get("tech_score","—")}</span>'
+                                f'{f"<span>{_iwhy}</span>" if _iwhy else ""}'
+                                f'</div>'
+                                f'</div>', unsafe_allow_html=True)
+                        with _ic2:
+                            if _idea["symbol"] not in {t["symbol"] for t in load_watchlist()}:
+                                if st.button("➕ Watch", key=f"supply_watch_{_idea['symbol']}"):
+                                    _wl_new = load_watchlist()
+                                    _wl_new.append({"symbol": _idea["symbol"], "industry": "Misc"})
+                                    save_watchlist(_wl_new)
+                                    st.rerun()
+                    st.caption("💡 Add ideas to your watchlist, then run an analysis to get their full scores — "
+                               "or switch Invest Cash to Aggressive to let it consider scan discoveries.")
 
             # ── Ask AI about the scan results ──────────────────────────────
             st.markdown('<div class="section-header" style="margin-top:1rem">Ask AI About These Results</div>', unsafe_allow_html=True)

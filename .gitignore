@@ -13,6 +13,7 @@ data/holdings.json
 data/watchlist.json
 data/*.migrated
 data/users/
+data/cache/
 data/sp500_cache.json
 
 # Database (local state)
