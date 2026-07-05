@@ -201,6 +201,15 @@ st.markdown("""
     border-radius:12px !important; border:1px solid #e8ecf4;
   }
 
+  /* ── Skeleton shimmer ── */
+  @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+  .skeleton {
+    background: linear-gradient(90deg,#edf1f8 25%,#f9fbfe 50%,#edf1f8 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.3s ease-in-out infinite;
+    border-radius: 14px; border: 1px solid #eef1f7;
+  }
+
   /* ── Dialog / misc polish ── */
   div[data-testid="stDialog"] > div { border-radius:18px; }
   [data-testid="stMain"] hr { border-color:#edf1f7; }
@@ -263,6 +272,42 @@ def _score_color(score):
     if score >= 60: return "#2563eb"
     if score >= 45: return "#d97706"
     return "#dc2626"
+
+PLAIN_VERDICT = {
+    "Strong Buy": "Very strong signals",
+    "Buy":        "Good signals",
+    "Watch":      "Wait and see",
+    "Avoid":      "Stay away for now",
+}
+
+def _empty_state(emoji, title, body, hint=None):
+    """Friendly illustrated placeholder card for empty pages/sections.
+    Built as one line — indented lines inside st.markdown HTML become code blocks."""
+    hint_html = (f'<div style="margin-top:.9rem"><span style="background:#eef2ff;color:#4f46e5;'
+                 f'border:1px solid #dfe4ff;border-radius:999px;padding:4px 14px;font-size:.78rem;'
+                 f'font-weight:600">{hint}</span></div>') if hint else ""
+    return (
+        f'<div style="background:#fff;border:1.5px dashed #d7deeb;border-radius:18px;'
+        f'padding:2.6rem 2rem;text-align:center;margin:.8rem 0">'
+        f'<div style="width:76px;height:76px;border-radius:50%;margin:0 auto 1rem;'
+        f'background:radial-gradient(circle at 30% 30%,#eef2ff,#e0e7ff);display:flex;align-items:center;'
+        f'justify-content:center;font-size:2.1rem;box-shadow:inset 0 0 0 9px #f5f7ff">{emoji}</div>'
+        f'<div style="font-size:1.05rem;font-weight:800;color:#0f172a;letter-spacing:-.01em">{title}</div>'
+        f'<div style="font-size:.86rem;color:#8a94a6;max-width:420px;margin:.45rem auto 0;line-height:1.55">{body}</div>'
+        f'{hint_html}</div>'
+    )
+
+def _skeleton_loader(message):
+    """Shimmering placeholder shown while an analysis/scan runs."""
+    kpis = "".join('<div class="skeleton" style="height:88px;flex:1"></div>' for _ in range(4))
+    rows = "".join(
+        f'<div class="skeleton" style="height:62px;margin-top:.6rem;opacity:{1 - i*0.18}"></div>'
+        for i in range(4)
+    )
+    return (
+        f'<div style="font-size:.85rem;color:#6366f1;font-weight:600;margin:.2rem 0 .7rem">✨ {message}</div>'
+        f'<div style="display:flex;gap:1rem">{kpis}</div>{rows}'
+    )
 
 def _sparkline(symbol: str) -> go.Figure:
     try:
@@ -572,11 +617,14 @@ if st.session_state.get("run_analysis"):
     st.session_state["run_analysis"] = False
     # Push selected model into env so agents pick it up
     os.environ["ADVISOR_AI_MODEL"] = st.session_state.get("ai_model_id", "claude-sonnet-4-6")
-    with st.spinner("Running analysis…"):
-        progress = st.empty()
-        def _cb(msg): progress.caption(msg)
-        results, regime = run_analysis(status_cb=_cb)
-        progress.empty()
+    _skel = st.empty()
+    _skel.markdown(_skeleton_loader("Scoring your watchlist — company health, price trends, and today's news…"),
+                   unsafe_allow_html=True)
+    progress = st.empty()
+    def _cb(msg): progress.caption(msg)
+    results, regime = run_analysis(status_cb=_cb)
+    progress.empty()
+    _skel.empty()
     st.session_state["results"] = results
     st.session_state["regime"] = regime
     st.success("Analysis complete!")
@@ -634,14 +682,14 @@ if page == "Dashboard":  # ── includes Portfolio ──
         for _r in results:
             _badge_txt = _r["action"]
             _rec_rows.append({
-                "Ticker":   _r["symbol"],
-                "Action":   _badge_txt,
-                "Score":    _r["score"],
-                "Entry $":  _r["current_price"],
-                "Target $": _r["target_price"],
-                "Upside %": _r["upside_pct"],
-                "Shares":   _r["suggested_quantity"],
-                "Reason":   (", ".join(_r.get("reasons", [])[:2]) or "—")[:80],
+                "Stock":         _r["symbol"],
+                "What to do":    _badge_txt,
+                "Score /100":    _r["score"],
+                "Price now":     _r["current_price"],
+                "Could reach":   _r["target_price"],
+                "Possible gain": _r["upside_pct"],
+                "Shares to buy": _r["suggested_quantity"],
+                "Why":           (", ".join(_r.get("reasons", [])[:2]) or "—")[:80],
             })
         _rec_df = pd.DataFrame(_rec_rows)
         _action_colors = {
@@ -659,16 +707,21 @@ if page == "Dashboard":  # ── includes Portfolio ──
                 return ""
         st.dataframe(
             _rec_df.style
-                .applymap(_color_action, subset=["Action"])
-                .applymap(_color_upside, subset=["Upside %"])
-                .format({"Score": "{:.0f}", "Entry $": "${:.2f}", "Target $": "${:.2f}",
-                         "Upside %": "{:+.1f}%", "Shares": "{:g}"}, na_rep="—"),
+                .applymap(_color_action, subset=["What to do"])
+                .applymap(_color_upside, subset=["Possible gain"])
+                .format({"Score /100": "{:.0f}", "Price now": "${:.2f}", "Could reach": "${:.2f}",
+                         "Possible gain": "{:+.1f}%", "Shares to buy": "{:g}"}, na_rep="—"),
             width="stretch",
             height=min(420, 60 + len(_rec_rows) * 38),
         )
         st.markdown("<br>", unsafe_allow_html=True)
     else:
-        st.info("Click **▶ Run Analysis Now** in the sidebar to get AI stock recommendations.")
+        st.markdown(_empty_state(
+            "🤖", "No recommendations yet",
+            "Run your first analysis and the AI will grade every stock on your watchlist — "
+            "company health, price trend, and news mood — then rank them into simple buy/watch calls.",
+            "▶ Run Analysis Now — it's in the sidebar, takes ~15 seconds",
+        ), unsafe_allow_html=True)
 
     # ── Portfolio pie charts ──────────────────────────────────────────────────
     _h_pie = load_holdings()
@@ -922,8 +975,8 @@ if page == "Dashboard":  # ── includes Portfolio ──
         st.markdown(f"""<div class="regime-banner">
           <div class="regime-key">Market Regime: {w['label']}</div>
           <div class="regime-sub">
-            Weights → Fundamentals {w['fund']*100:.0f}% · Technicals {w['tech']*100:.0f}% ·
-            Sentiment {w['sent']*100:.0f}% &nbsp;|&nbsp; {src}
+            Today's recipe → Company Health {w['fund']*100:.0f}% · Price Trend {w['tech']*100:.0f}% ·
+            News Mood {w['sent']*100:.0f}% &nbsp;|&nbsp; {src}
           </div>
           <div class="regime-sub" style="margin-top:4px;font-style:italic;">{rationale}</div>
         </div>""", unsafe_allow_html=True)
@@ -965,7 +1018,7 @@ if page == "Dashboard":  # ── includes Portfolio ──
       <div style="display:flex;gap:1.5rem;flex-wrap:wrap">
         <div style="flex:1;min-width:180px">
           <div style="font-weight:700;color:#0f172a;font-size:.9rem">
-            ⬡ Quantitative Performance
+            🏥 Company Health
             <span style="background:#6366f1;color:#fff;border-radius:99px;
               padding:1px 8px;font-size:.72rem;margin-left:.4rem">{_fw}%</span>
           </div>
@@ -975,7 +1028,7 @@ if page == "Dashboard":  # ── includes Portfolio ──
         </div>
         <div style="flex:1;min-width:180px">
           <div style="font-weight:700;color:#0f172a;font-size:.9rem">
-            ⬡ Trend &amp; Momentum
+            📈 Price Trend
             <span style="background:#f59e0b;color:#fff;border-radius:99px;
               padding:1px 8px;font-size:.72rem;margin-left:.4rem">{_tw}%</span>
           </div>
@@ -985,7 +1038,7 @@ if page == "Dashboard":  # ── includes Portfolio ──
         </div>
         <div style="flex:1;min-width:180px">
           <div style="font-weight:700;color:#0f172a;font-size:.9rem">
-            ⬡ Market Sentiment
+            📰 News Mood
             <span style="background:#10b981;color:#fff;border-radius:99px;
               padding:1px 8px;font-size:.72rem;margin-left:.4rem">{_sw}%</span>
           </div>
@@ -995,8 +1048,8 @@ if page == "Dashboard":  # ── includes Portfolio ──
         </div>
       </div>
       <div style="font-size:.75rem;color:#94a3b8;margin-top:.5rem">
-        Weights shift automatically with market regime (VIX + AI classification).
-        In volatile markets, Sentiment gets more weight; in calm markets, Fundamentals lead.
+        The mix adjusts itself to market conditions: in stormy markets the news matters more,
+        in calm markets company health leads.
       </div>
     </div>""", unsafe_allow_html=True)
 
@@ -1028,6 +1081,8 @@ if page == "Dashboard":  # ── includes Portfolio ──
                 )
             with c2:
                 st.markdown(_badge(action), unsafe_allow_html=True)
+                st.markdown(f"<small style='color:#8a94a6'>{PLAIN_VERDICT.get(action, '')}</small>",
+                            unsafe_allow_html=True)
             with c3:
                 st.markdown(
                     f"<span style='font-weight:700;color:{color};font-size:1.1rem'>{score}</span>"
@@ -1036,7 +1091,7 @@ if page == "Dashboard":  # ── includes Portfolio ──
                 )
                 st.markdown(_score_bar(score, color), unsafe_allow_html=True)
                 st.markdown(
-                    f"<small style='color:#9ca3af'>F{r['fund_score']} T{r['tech_score']} S{r['sent_score']}</small>",
+                    f"<small style='color:#9ca3af'>Health {r['fund_score']:.0f} · Trend {r['tech_score']:.0f} · News {r['sent_score']:.0f}</small>",
                     unsafe_allow_html=True
                 )
             with c4:
@@ -1069,11 +1124,11 @@ if page == "Dashboard":  # ── includes Portfolio ──
                         _ss = r.get("sent_score", 0)
                         st.markdown(
                             f"<div style='font-size:.75rem;margin-bottom:.4rem'>"
-                            f"<span style='color:#6366f1;font-weight:700'>⬡ Fundamentals</span> "
+                            f"<span style='color:#6366f1;font-weight:700'>🏥 Company Health</span> "
                             f"<b>{_fs}/100</b> &nbsp; "
-                            f"<span style='color:#f59e0b;font-weight:700'>⬡ Technicals</span> "
+                            f"<span style='color:#f59e0b;font-weight:700'>📈 Price Trend</span> "
                             f"<b>{_ts}/100</b> &nbsp; "
-                            f"<span style='color:#10b981;font-weight:700'>⬡ Sentiment</span> "
+                            f"<span style='color:#10b981;font-weight:700'>📰 News Mood</span> "
                             f"<b>{_ss}/100</b></div>",
                             unsafe_allow_html=True,
                         )
@@ -1082,13 +1137,13 @@ if page == "Dashboard":  # ── includes Portfolio ──
                         _tech_r = [x for x in r.get("reasons", []) if any(k in x.lower() for k in ("rsi","macd","sma","volume","trend","crossover","oversold","overbought"))]
                         _sent_r = [x for x in r.get("reasons", []) if x not in _fund_r and x not in _tech_r]
                         if _fund_r:
-                            st.markdown("**Quantitative Performance**")
+                            st.markdown("**🏥 Company Health**")
                             for _rr in _fund_r: st.markdown(f"  • {_rr}")
                         if _tech_r:
-                            st.markdown("**Trend & Momentum**")
+                            st.markdown("**📈 Price Trend**")
                             for _rr in _tech_r: st.markdown(f"  • {_rr}")
                         if _sent_r:
-                            st.markdown("**Market Sentiment**")
+                            st.markdown("**📰 News Mood**")
                             for _rr in _sent_r: st.markdown(f"  • {_rr}")
                         # News headlines
                         _hl = r.get("headlines", [])
@@ -1156,7 +1211,12 @@ if page == "Dashboard":  # ── includes Portfolio ──
     cash = h.get("cash", 0.0)
 
     if not positions:
-        st.info("No positions imported yet. Go to **Settings → Import from Chase** to upload your positions CSV.")
+        st.markdown(_empty_state(
+            "🗂️", "Your portfolio is empty",
+            "Import the CSV from your broker and this section fills with charts: what you own, "
+            "how it's doing, and where your money is concentrated.",
+            "Settings → Import from Chase",
+        ), unsafe_allow_html=True)
         st.stop()
 
     # ── Build DataFrame ───────────────────────────────────────────────────────
@@ -1433,7 +1493,11 @@ elif page == "Invest Cash":
             data_note = f"using your last saved analysis ({_last_run} UTC) — run a fresh one for up-to-date prices"
 
     if not results:
-        st.info("**No analysis yet.** I need scores before I can build a plan — click the button below (takes ~15 seconds).")
+        st.markdown(_empty_state(
+            "🧮", "I need scores before I can build your plan",
+            "One click and the AI grades every stock on your watchlist — then this page turns "
+            "any amount of cash into a simple, diversified buy plan.",
+        ), unsafe_allow_html=True)
         if st.button("▶  Run Analysis Now", key="invest_run_now"):
             st.session_state["run_analysis"] = True
             st.rerun()
@@ -1497,21 +1561,21 @@ elif page == "Invest Cash":
     custom_weights = None
     with st.expander("⚙️ Advanced — adjust the recipe (optional)"):
         st.markdown("""<div style="font-size:.82rem;color:#64748b;margin-bottom:.5rem">
-          Your plan blends three models: <b>Quantitative Performance</b> (company financials),
-          <b>Trend &amp; Momentum</b> (price charts), and <b>Market Sentiment</b> (AI reading the news —
-          the qualitative one). Normally the mix adjusts automatically to market conditions,
-          but you can override it here. Sliders are relative — I normalize them for you.
+          Your plan blends three ingredients: <b>🏥 Company Health</b> (is the business strong?),
+          <b>📈 Price Trend</b> (is the stock moving up?), and <b>📰 News Mood</b> (AI reads the
+          headlines). Normally the mix adjusts itself to market conditions, but you can
+          override it here. Sliders are relative — I balance them for you.
         </div>""", unsafe_allow_html=True)
-        _use_custom = st.checkbox("Customize the factor mix", value=False, key="invest_custom_w")
+        _use_custom = st.checkbox("Customize the mix", value=False, key="invest_custom_w")
         _wc1, _wc2, _wc3 = st.columns(3)
-        _w_fund = _wc1.slider("⬡ Quantitative Performance", 0, 100, _def_fund, disabled=not _use_custom, key="w_fund")
-        _w_tech = _wc2.slider("⬡ Trend & Momentum", 0, 100, _def_tech, disabled=not _use_custom, key="w_tech")
-        _w_sent = _wc3.slider("⬡ Market Sentiment (AI)", 0, 100, _def_sent, disabled=not _use_custom, key="w_sent")
+        _w_fund = _wc1.slider("🏥 Company Health", 0, 100, _def_fund, disabled=not _use_custom, key="w_fund")
+        _w_tech = _wc2.slider("📈 Price Trend", 0, 100, _def_tech, disabled=not _use_custom, key="w_tech")
+        _w_sent = _wc3.slider("📰 News Mood (AI)", 0, 100, _def_sent, disabled=not _use_custom, key="w_sent")
         if _use_custom and (_w_fund + _w_tech + _w_sent) > 0:
             custom_weights = {"fund": _w_fund, "tech": _w_tech, "sent": _w_sent}
             _wt = _w_fund + _w_tech + _w_sent
-            st.caption(f"Effective mix → Performance {_w_fund/_wt*100:.0f}% · "
-                       f"Trend {_w_tech/_wt*100:.0f}% · Sentiment {_w_sent/_wt*100:.0f}%")
+            st.caption(f"Your mix → Health {_w_fund/_wt*100:.0f}% · "
+                       f"Trend {_w_tech/_wt*100:.0f}% · News {_w_sent/_wt*100:.0f}%")
         _oc1, _oc2 = st.columns(2)
         allow_frac = _oc1.checkbox(
             "Allow fractional shares", value=True, key="invest_frac",
@@ -1605,7 +1669,7 @@ elif page == "Invest Cash":
   {_score_bar(_pk['pct_of_deposit'], _c)}
   <div style="font-size:.8rem;color:#64748b;margin-top:.5rem"><b style="color:#334155">Why:</b> {_pk['why']}</div>
   <div style="font-size:.72rem;color:#94a3b8;margin-top:.3rem">
-    Model scores — Performance {_pk.get('fund_score') or '—'} · Trend {_pk.get('tech_score') or '—'} · Sentiment {_pk.get('sent_score') or '—'}
+    Health {_pk.get('fund_score') or '—'} · Trend {_pk.get('tech_score') or '—'} · News {_pk.get('sent_score') or '—'}
   </div>
   {_own_note}
 </div>""", unsafe_allow_html=True)
@@ -1658,10 +1722,10 @@ elif page == "Invest Cash":
         st.markdown("""
 | Term | Plain English |
 |---|---|
-| **Score (0–100)** | The AI's overall grade for a stock right now. 75+ is a strong signal, below 45 means stay away. It blends the three models below. |
-| **Quantitative Performance** | How healthy the company's numbers are — is it profitable, growing, reasonably priced, not drowning in debt? |
-| **Trend & Momentum** | What the price chart says — is the stock in an uptrend, and is it overbought (maybe too late) or oversold (maybe a bargain)? |
-| **Market Sentiment** | The qualitative model: AI reads recent news headlines and judges whether the mood around the stock is positive or negative. |
+| **Score (0–100)** | The AI's overall grade for a stock right now. 75+ is a strong signal, below 45 means stay away. It blends the three ingredients below. |
+| **🏥 Company Health** | How healthy the company's numbers are — is it profitable, growing, reasonably priced, not drowning in debt? |
+| **📈 Price Trend** | What the price chart says — is the stock moving up, and is it overheated (maybe too late) or beaten down (maybe a bargain)? |
+| **📰 News Mood** | AI reads recent news headlines and judges whether the mood around the stock is positive or negative. |
 | **Market regime** | Whether the overall market is calm or stormy. In stormy markets the recipe trusts news and trends more; in calm markets, company numbers. |
 | **Diversification** | Not putting all your eggs in one basket. The plan caps how much goes into any single stock or industry. |
 | **Fractional shares** | Buying a piece of a share (e.g. 0.25 shares of a $500 stock for $125). Most big brokers support this. |
@@ -1697,11 +1761,14 @@ elif page == "Scan & Alerts":
             run_scan = st.button("🔍  Run Market Scan")
 
         if run_scan:
-            with st.spinner("Scanning S&P 500 in parallel… usually ~30s"):
-                progress = st.empty()
-                def _cb(msg): progress.caption(msg)
-                full_results, pass1_results, regime = scan_market(UID, shortlist_size=int(shortlist_n), status_cb=_cb)
-                progress.empty()
+            _skel_scan = st.empty()
+            _skel_scan.markdown(_skeleton_loader("Scanning ~500 S&P stocks — bulk prices, health checks, then AI scoring the best…"),
+                                unsafe_allow_html=True)
+            progress = st.empty()
+            def _cb(msg): progress.caption(msg)
+            full_results, pass1_results, regime = scan_market(UID, shortlist_size=int(shortlist_n), status_cb=_cb)
+            progress.empty()
+            _skel_scan.empty()
             st.session_state["scan_full"] = full_results
             st.session_state["scan_pass1"] = pass1_results
             st.session_state["scan_regime"] = regime
@@ -1739,7 +1806,12 @@ elif page == "Scan & Alerts":
                            "click **Run Market Scan** for fresh results.")
 
         if not scan_full:
-            st.info("Click **Run Market Scan** to discover ideas beyond your watchlist.")
+            st.markdown(_empty_state(
+                "🔭", "Discover ideas beyond your watchlist",
+                "One click scans ~500 of America's biggest companies, grades them all, and picks "
+                "the standouts — sorted by what kind of pick they are: value, growth, momentum, and more.",
+                "🔍 Run Market Scan — the button is just above",
+            ), unsafe_allow_html=True)
         else:
             if scan_regime:
                 st.caption(f"Regime: **{scan_regime['label']}** — {scan_regime.get('rationale','')}")
@@ -1859,7 +1931,7 @@ elif page == "Scan & Alerts":
                         f'<div style="display:flex;align-items:baseline;gap:.8rem;margin-top:.35rem;flex-wrap:wrap">'
                         f'<span style="font-size:.95rem;color:#0f172a"><b>${_r.get("current_price", "—")}</b> <span style="color:#94a3b8;font-size:.78rem">now</span></span>'
                         f'<span style="font-size:.95rem;color:#16a34a"><b>${_r.get("target_price", "—")}</b> <span style="color:#94a3b8;font-size:.78rem">target (+{_r.get("upside_pct", "—")}%)</span></span>'
-                        f'<span style="font-size:.74rem;color:#94a3b8">Models: F{_r.get("fund_score", "—")} · T{_r.get("tech_score", "—")} · S{_r.get("sent_score", "—")}</span>'
+                        f'<span style="font-size:.74rem;color:#94a3b8">Health {_r.get("fund_score", "—")} · Trend {_r.get("tech_score", "—")} · News {_r.get("sent_score", "—")}</span>'
                         f'<span style="font-size:.72rem;color:#c4b5fd">ℹ️ hover for live stats</span>'
                         f'</div>'
                         f'<div style="font-size:.78rem;color:#64748b;margin-top:.35rem"><b style="color:#334155">Why:</b> {_why}</div>'
@@ -1928,10 +2000,10 @@ elif page == "Scan & Alerts":
                         st.markdown(f"<div style='font-size:.85rem;color:#475569;padding:.1rem 0'>{_line}</div>",
                                     unsafe_allow_html=True)
                 with _st2:
-                    st.markdown("**Model scores**")
-                    for _lbl2, _v2, _c2 in (("Quantitative Performance", _rr.get("fund_score"), "#6366f1"),
-                                            ("Trend & Momentum", _rr.get("tech_score"), "#f59e0b"),
-                                            ("Market Sentiment (AI)", _rr.get("sent_score"), "#10b981")):
+                    st.markdown("**Score ingredients**")
+                    for _lbl2, _v2, _c2 in (("🏥 Company Health", _rr.get("fund_score"), "#6366f1"),
+                                            ("📈 Price Trend", _rr.get("tech_score"), "#f59e0b"),
+                                            ("📰 News Mood (AI)", _rr.get("sent_score"), "#10b981")):
                         _v2 = _safe_float(_v2, 0)
                         st.markdown(f"<div style='font-size:.8rem;color:#475569;margin-top:.3rem'>{_lbl2} — <b>{_v2:.0f}/100</b></div>"
                                     + _score_bar(_v2, _c2), unsafe_allow_html=True)
@@ -2105,7 +2177,11 @@ Answer the user's question directly and concisely based on this data. Keep it un
         st.markdown('<div class="section-header">Recent Alerts</div>', unsafe_allow_html=True)
         alerts = get_recent_alerts(limit=50)
         if not alerts:
-            st.info("No alerts fired yet.")
+            st.markdown(_empty_state(
+                "🔔", "All quiet for now",
+                "Alerts appear here when something worth knowing happens: a stock flips to Strong Buy, "
+                "hits its target price, jumps ±5% in a day, or a scan discovers a gem you don't own yet.",
+            ), unsafe_allow_html=True)
         else:
             df_alerts = pd.DataFrame(alerts)[["fired_at","symbol","alert_type","message"]]
             df_alerts.columns = ["Fired At (UTC)","Symbol","Type","Message"]
@@ -2217,7 +2293,12 @@ elif page == "Performance":
 
     baselines = get_performance_snapshot()
     if not baselines:
-        st.info("No suggestion history yet. Run an analysis first to start tracking.")
+        st.markdown(_empty_state(
+            "📊", "Nothing to track yet",
+            "Once you run your first analysis, this page keeps score: how every AI suggestion "
+            "actually performed afterwards — the honest report card.",
+            "▶ Run Analysis Now in the sidebar",
+        ), unsafe_allow_html=True)
     else:
         rows = []
         with st.spinner("Fetching prices…"):
