@@ -62,5 +62,25 @@ def score_technicals(price_history: pd.DataFrame) -> dict:
     if vol_avg and vol_last > vol_avg * 1.5:
         reasons.append("Volume spike vs 20-day average")
 
+    # Distance from recent high: near-high = strength, deep drawdown = caution
+    high = float(close.max())
+    if high > 0:
+        drawdown = last / high - 1
+        if drawdown >= -0.03:
+            points.append(75); reasons.append("Trading near its recent high — strength")
+        elif drawdown <= -0.25:
+            points.append(30); reasons.append(f"{abs(drawdown)*100:.0f}% below its recent high")
+        else:
+            points.append(50)
+
+    # Choppiness: very jumpy prices mean higher risk for the same score
+    daily_vol = float(close.pct_change().std() * 100)
+    if daily_vol > 4:
+        points.append(30); reasons.append("Very jumpy price — higher risk")
+    elif daily_vol < 1.5:
+        points.append(60); reasons.append("Steady, low-drama price action")
+    else:
+        points.append(50)
+
     score = sum(points) / len(points)
     return {"score": round(score, 1), "reasons": reasons}

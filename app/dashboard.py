@@ -17,6 +17,7 @@ from data.loader import (
     fetch_ticker_info, fetch_price_history, current_portfolio_value,
     load_watchlist as _load_watchlist, load_holdings as _load_holdings,
     save_watchlist as _save_watchlist, save_holdings as _save_holdings,
+    load_user_settings as _load_user_settings, save_user_settings as _save_user_settings,
 )
 from db.store import (
     init_db,
@@ -242,6 +243,8 @@ def get_performance_snapshot():        return _get_performance_snapshot(UID)
 def get_latest_run_suggestions():      return _get_latest_run_suggestions(UID)
 def get_last_scan():                   return _get_last_scan(UID)
 def run_analysis(status_cb=None, **k): return _run_analysis(UID, status_cb=status_cb, **k)
+def load_user_settings():              return _load_user_settings(UID)
+def save_user_settings(s):             return _save_user_settings(UID, s)
 
 ACTION_BADGE = {
     "Strong Buy": "badge-strong-buy",
@@ -391,11 +394,12 @@ def _sidebar_snapshot():
         "has_rich":     has_rich,
     }
 
-PAGES = ["Dashboard", "Invest Cash", "Scan & Alerts", "Lists & History", "Performance", "Settings"]
+PAGES = ["Dashboard", "Invest Cash", "Scan & Alerts", "Lists & History", "Performance", "How It Works", "Settings"]
 PAGE_ICONS = {
     "Dashboard":      "◼",
     "Invest Cash":    "💰",
     "Scan & Alerts":  "🔭",
+    "How It Works":   "📖",
     "Lists & History":"📋",
     "Performance":    "📊",
     "Settings":       "⚙️",
@@ -970,7 +974,8 @@ if page == "Dashboard":  # ── includes Portfolio ──
     # Regime banner
     if regime:
         w = regime
-        src = "🤖 LLM-classified" if w.get("source") == "llm" else "📊 VIX rule"
+        src = ("🎛 your custom mix" if w.get("source") == "user"
+               else "🤖 LLM-classified" if w.get("source") == "llm" else "📊 VIX rule")
         rationale = w.get("rationale", "")
         st.markdown(f"""<div class="regime-banner">
           <div class="regime-key">Market Regime: {w['label']}</div>
@@ -1049,7 +1054,8 @@ if page == "Dashboard":  # ── includes Portfolio ──
       </div>
       <div style="font-size:.75rem;color:#94a3b8;margin-top:.5rem">
         The mix adjusts itself to market conditions: in stormy markets the news matters more,
-        in calm markets company health leads.
+        in calm markets company health leads. Want the full rulebook — or your own mix?
+        See <b>📖 How It Works</b> in the sidebar.
       </div>
     </div>""", unsafe_allow_html=True)
 
@@ -1090,8 +1096,11 @@ if page == "Dashboard":  # ── includes Portfolio ──
                     unsafe_allow_html=True
                 )
                 st.markdown(_score_bar(score, color), unsafe_allow_html=True)
+                _conf = r.get("confidence")
+                _conf_chip = ("<br><span style='color:#15803d;font-size:.7rem;font-weight:600'>✅ models agree</span>" if _conf == "aligned"
+                              else "<br><span style='color:#b45309;font-size:.7rem;font-weight:600'>⚠️ mixed signals</span>" if _conf == "mixed" else "")
                 st.markdown(
-                    f"<small style='color:#9ca3af'>Health {r['fund_score']:.0f} · Trend {r['tech_score']:.0f} · News {r['sent_score']:.0f}</small>",
+                    f"<small style='color:#9ca3af'>Health {r['fund_score']:.0f} · Trend {r['tech_score']:.0f} · News {r['sent_score']:.0f}</small>{_conf_chip}",
                     unsafe_allow_html=True
                 )
             with c4:
@@ -2409,6 +2418,137 @@ elif page == "Performance":
                              "To Target %": "{:+.1f}%"}, na_rep="—"),
                 width="stretch", height=400,
             )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# HOW IT WORKS
+# ══════════════════════════════════════════════════════════════════════════════
+elif page == "How It Works":
+    st.markdown("# 📖 How It Works")
+    st.markdown("What's behind every recommendation — and the dials you can turn yourself.")
+
+    # ── The three ingredients ─────────────────────────────────────────────────
+    st.markdown('<div class="section-header">Every score blends three ingredients</div>', unsafe_allow_html=True)
+    st.markdown("""<div style="font-size:.85rem;color:#64748b;margin-bottom:.8rem">
+      Each stock gets three independent grades from 0–100, blended into one final score.
+      These are the exact rules the app uses — nothing hidden.
+    </div>""", unsafe_allow_html=True)
+
+    _hc1, _hc2, _hc3 = st.columns(3)
+    with _hc1:
+        st.markdown("""<div class="metric-card" style="height:100%">
+          <div style="font-weight:800;color:#6366f1;font-size:.95rem">🏥 Company Health</div>
+          <div style="font-size:.78rem;color:#64748b;margin:.4rem 0 .6rem">Is the business itself strong?</div>
+          <div style="font-size:.78rem;color:#475569;line-height:1.7">
+            • <b>Price tag (P/E)</b>: under 15 is great, over 40 is expensive<br>
+            • <b>Growth vs price (PEG)</b>: under 1 = growth on sale<br>
+            • <b>Revenue growth</b>: over 15%/yr is strong<br>
+            • <b>Profit margin</b>: over 20% is excellent<br>
+            • <b>Debt</b>: low debt/equity earns points<br>
+            • <b>Returns on capital (ROE)</b>: over 25% is elite
+          </div></div>""", unsafe_allow_html=True)
+    with _hc2:
+        st.markdown("""<div class="metric-card" style="height:100%">
+          <div style="font-weight:800;color:#f59e0b;font-size:.95rem">📈 Price Trend</div>
+          <div style="font-size:.78rem;color:#64748b;margin:.4rem 0 .6rem">Is the stock moving the right way?</div>
+          <div style="font-size:.78rem;color:#475569;line-height:1.7">
+            • <b>RSI</b>: rewards beaten-down bounce setups, flags overheated ones<br>
+            • <b>MACD</b>: is momentum turning up or down?<br>
+            • <b>Moving averages</b>: price above its 50/200-day lines = uptrend<br>
+            • <b>Recent high</b>: near the high = strength; 25%+ below = caution<br>
+            • <b>Choppiness</b>: very jumpy prices lose points
+          </div></div>""", unsafe_allow_html=True)
+    with _hc3:
+        st.markdown("""<div class="metric-card" style="height:100%">
+          <div style="font-weight:800;color:#10b981;font-size:.95rem">📰 News Mood</div>
+          <div style="font-size:.78rem;color:#64748b;margin:.4rem 0 .6rem">What's the story around it?</div>
+          <div style="font-size:.78rem;color:#475569;line-height:1.7">
+            • AI (Claude) reads each stock's recent headlines<br>
+            • Scores the mood 0 (very negative) to 100 (very positive), 50 = neutral<br>
+            • The qualitative ingredient — it reads language, not numbers<br>
+            • Needs the owner's AI key; falls back to neutral 50 without it
+          </div></div>""", unsafe_allow_html=True)
+
+    # ── Regime table ──────────────────────────────────────────────────────────
+    st.markdown('<div class="section-header">The mix changes with the market\'s mood</div>', unsafe_allow_html=True)
+    st.markdown("""
+| Market mood | 🏥 Health | 📈 Trend | 📰 News | Why |
+|---|---|---|---|---|
+| **Calm** (VIX < 18) | 50% | 30% | 20% | Quiet markets reward strong businesses |
+| **Mixed** (VIX 18–28) | 35% | 35% | 30% | No single force dominates |
+| **Stormy** (VIX > 28) | 20% | 35% | 45% | Headlines move prices faster than balance sheets |
+""")
+    st.caption("The app checks the VIX ('fear index') and has AI read the day's macro headlines to pick the row. "
+               "Unless you override it below.")
+
+    # ── Score → action ────────────────────────────────────────────────────────
+    st.markdown('<div class="section-header">From score to suggestion</div>', unsafe_allow_html=True)
+    st.markdown("""
+| Final score | Call | Meaning |
+|---|---|---|
+| 75–100 | 🟢 Strong Buy | Very strong signals — up to 5% of portfolio suggested |
+| 60–74 | 🔵 Buy | Good signals — up to 3% suggested |
+| 45–59 | 🟡 Watch | Wait and see — no purchase suggested |
+| 0–44 | 🔴 Avoid | Stay away for now |
+""")
+    st.markdown("""<div style="font-size:.8rem;color:#64748b;margin-top:.3rem">
+      Extras that adjust the final result: when all three ingredients agree, a pick is marked
+      <b style="color:#15803d">✅ models agree</b>; when they clash it's marked
+      <b style="color:#b45309">⚠️ mixed signals</b> and the Invest Cash planner automatically
+      bets less on it. The planner also caps any single stock and sector, and won't add to
+      positions that are already a big slice of your portfolio.
+    </div>""", unsafe_allow_html=True)
+
+    # ── Your factor mix ───────────────────────────────────────────────────────
+    st.markdown('<div class="section-header">🎛 Your factor mix</div>', unsafe_allow_html=True)
+    st.markdown("""<div style="font-size:.85rem;color:#64748b;margin-bottom:.6rem">
+      Prefer to trust company numbers over headlines? Or ride trends? Set your own mix here —
+      it applies to <b>every analysis you run</b> from now on (just yours, not other users').
+    </div>""", unsafe_allow_html=True)
+
+    _settings = load_user_settings()
+    _saved_w = _settings.get("weights") or {}
+    _mode_options = ["Auto — adjusts with the market (recommended)", "Custom — my own mix"]
+    _mode_idx = 1 if _settings.get("weights_mode") == "custom" else 0
+    _mode_pick = st.radio("Weight mode", _mode_options, index=_mode_idx,
+                          horizontal=True, key="hiw_mode", label_visibility="collapsed")
+
+    _is_custom = _mode_pick.startswith("Custom")
+    _mc1, _mc2, _mc3 = st.columns(3)
+    _hw_fund = _mc1.slider("🏥 Company Health", 0, 100, int(_saved_w.get("fund", 35)),
+                           disabled=not _is_custom, key="hiw_fund")
+    _hw_tech = _mc2.slider("📈 Price Trend", 0, 100, int(_saved_w.get("tech", 35)),
+                           disabled=not _is_custom, key="hiw_tech")
+    _hw_sent = _mc3.slider("📰 News Mood", 0, 100, int(_saved_w.get("sent", 30)),
+                           disabled=not _is_custom, key="hiw_sent")
+
+    if _is_custom:
+        _hw_total = _hw_fund + _hw_tech + _hw_sent
+        if _hw_total > 0:
+            st.caption(f"Your mix → Health {_hw_fund/_hw_total*100:.0f}% · "
+                       f"Trend {_hw_tech/_hw_total*100:.0f}% · News {_hw_sent/_hw_total*100:.0f}% "
+                       "(sliders are relative — I balance them for you)")
+        else:
+            st.warning("At least one slider needs to be above zero.")
+
+    if st.button("💾 Save my mix", type="primary", key="hiw_save"):
+        if _is_custom and (_hw_fund + _hw_tech + _hw_sent) == 0:
+            st.error("At least one slider needs to be above zero.")
+        else:
+            _settings["weights_mode"] = "custom" if _is_custom else "auto"
+            if _is_custom:
+                _settings["weights"] = {"fund": _hw_fund, "tech": _hw_tech, "sent": _hw_sent}
+            save_user_settings(_settings)
+            st.success("Saved! Your next analysis will use "
+                       + ("your custom mix." if _is_custom else "the automatic market-aware mix."))
+
+    _current_mode = "custom" if _settings.get("weights_mode") == "custom" else "auto"
+    st.caption(f"Currently active: **{'🎛 your custom mix' if _current_mode == 'custom' else '🤖 automatic (market-aware)'}** · "
+               "You can also try one-off what-if mixes on the Invest Cash page without saving anything.")
+
+    st.caption("⚠️ This is an educational tool, not financial advice. The scoring rules are transparent "
+               "heuristics based on common investing conventions — they have not been backtested, and "
+               "AI models can be wrong. Always do your own research.")
 
 
 # ══════════════════════════════════════════════════════════════════════════════

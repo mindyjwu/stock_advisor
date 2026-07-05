@@ -167,6 +167,23 @@ def save_holdings(user_id: int, holdings: dict):
     fetch_ticker_info.cache_clear()
 
 
+def load_user_settings(user_id: int) -> dict:
+    """Per-user preferences (e.g. custom factor weights). Empty dict if unset."""
+    path = _user_dir(user_id) / "settings.json"
+    if not path.exists():
+        return {}
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def save_user_settings(user_id: int, settings: dict):
+    with open(_user_dir(user_id) / "settings.json", "w") as f:
+        json.dump(settings, f, indent=2)
+
+
 def holdings_total_value(holdings: dict) -> float:
     """Sum imported_value (from broker) across positions + cash, if available."""
     total = holdings.get("cash", 0.0)

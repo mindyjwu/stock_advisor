@@ -12,7 +12,7 @@ load_dotenv()
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from data.loader import (
-    load_watchlist, load_holdings, fetch_ticker_info,
+    load_watchlist, load_holdings, load_user_settings, fetch_ticker_info,
     fetch_price_history, fetch_vix, current_portfolio_value, holdings_by_symbol
 )
 from agents.fundamentals import score_fundamentals
@@ -58,6 +58,22 @@ def run_analysis(
         status_cb("Detecting market regime…")
     regime = detect_regime(vix, use_llm=use_llm_regime)
 
+    # If this user saved a custom factor mix (How It Works page), it overrides
+    # the regime's automatic weights for every analysis they run.
+    settings = load_user_settings(user_id)
+    if settings.get("weights_mode") == "custom":
+        w = settings.get("weights") or {}
+        total = sum(max(0.0, float(w.get(k, 0) or 0)) for k in ("fund", "tech", "sent"))
+        if total > 0:
+            regime = dict(
+                regime,
+                fund=round(max(0.0, float(w.get("fund", 0) or 0)) / total, 3),
+                tech=round(max(0.0, float(w.get("tech", 0) or 0)) / total, 3),
+                sent=round(max(0.0, float(w.get("sent", 0) or 0)) / total, 3),
+                source="user",
+                rationale="Using your custom factor mix (set on the How It Works page)",
+            )
+
     holdings = load_holdings(user_id)
     portfolio_value = current_portfolio_value(holdings)
     by_symbol = holdings_by_symbol(holdings)
@@ -99,6 +115,20 @@ def run_analysis(
         suggestion["headlines"]     = sent.get("headlines", [])
 
         all_reasons = pr["fund"]["reasons"] + pr["tech"]["reasons"] + sent["reasons"]
+
+        # Agreement signal: three independent models agreeing is a stronger
+        # signal than one loud model dragging the average up
+        _f, _t, _s = pr["fund"]["score"], pr["tech"]["score"], sent["score"]
+        _spread = max(_f, _t, _s) - min(_f, _t, _s)
+        if min(_f, _t, _s) >= 60 and _spread <= 25:
+            suggestion["confidence"] = "aligned"
+            all_reasons.append("All three factors agree — extra confidence")
+        elif _spread >= 35:
+            suggestion["confidence"] = "mixed"
+            all_reasons.append("Heads-up: the three factors disagree on this one")
+        else:
+            suggestion["confidence"] = "normal"
+
         suggestion["reasons"]    = all_reasons
         suggestion["fund_score"] = pr["fund"]["score"]
         suggestion["tech_score"] = pr["tech"]["score"]

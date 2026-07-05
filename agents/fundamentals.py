@@ -7,11 +7,18 @@ def score_fundamentals(info: dict) -> dict:
     rev_growth = info.get("revenueGrowth")
     profit_margin = info.get("profitMargins")
     debt_to_equity = info.get("debtToEquity")
+    roe = info.get("returnOnEquity")
 
     points = []
     reasons = []
 
-    # Valuation: lower PE/PEG is better, but penalize negative/missing
+    # Valuation: lower PE/PEG is better, but penalize negative/missing.
+    # Fall back to forward P/E (expected earnings) when trailing is missing.
+    if not (pe and pe > 0):
+        fwd = info.get("forwardPE")
+        if fwd and fwd > 0:
+            pe = fwd
+            reasons.append("Valued on expected (forward) earnings")
     if pe and pe > 0:
         if pe < 15:
             points.append(90); reasons.append(f"Attractive valuation (P/E {pe:.1f})")
@@ -59,6 +66,17 @@ def score_fundamentals(info: dict) -> dict:
             points.append(50)
         else:
             points.append(25); reasons.append(f"High debt/equity ({debt_to_equity:.0f})")
+
+    # Return on equity: how well the company turns shareholder money into profit
+    if roe is not None:
+        if roe > 0.25:
+            points.append(85); reasons.append(f"Excellent returns on capital (ROE {roe*100:.0f}%)")
+        elif roe > 0.12:
+            points.append(60)
+        elif roe > 0:
+            points.append(45)
+        else:
+            points.append(20); reasons.append("Negative return on shareholder capital")
 
     score = sum(points) / len(points) if points else 50.0
     return {"score": round(score, 1), "reasons": reasons}

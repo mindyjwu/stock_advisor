@@ -219,6 +219,8 @@ def build_plan(
         w = max(1.0, float(r["score"]) - 50.0) ** profile["exponent"]
         if r["_existing_pct"] >= profile["concentration_limit"] / 2:
             w *= 0.5  # already own a meaningful slice — go easier
+        if r.get("confidence") == "mixed":
+            w *= 0.75  # factor models disagree — trim the bet
         raw[r["symbol"]] = w
 
     w = _clamp_and_redistribute(raw, profile["max_stock_pct"])
