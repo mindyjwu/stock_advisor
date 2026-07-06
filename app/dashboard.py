@@ -1446,6 +1446,12 @@ elif page == "Stock Advisor":
                 "Run a 🔭 Market Scan and its discoveries will appear here automatically.")
     saved_symbols_sa = {p["symbol"] for p in get_saved_picks()}
 
+    try:
+        from agents.blurbs import get_blurbs
+        _blurbs_sa = get_blurbs([r["symbol"] for r in _picks_sa[:8]])
+    except Exception:
+        _blurbs_sa = {}
+
     for r in _picks_sa[:8]:
         action = r["action"]
         score  = r["score"]
@@ -1502,6 +1508,11 @@ elif page == "Stock Advisor":
                 else:
                     save_pick(r["symbol"], r.get("industry", "Misc"))
                 st.rerun()
+
+        _blurb_row = _blurbs_sa.get(r["symbol"])
+        if _blurb_row:
+            st.markdown(f"<div style='font-size:.8rem;color:#334155;margin:-.2rem 0 .3rem 0'>"
+                        f"<b>🏢 What they do:</b> {_blurb_row}</div>", unsafe_allow_html=True)
 
         # Full-width analysis — never squeezed into a narrow column
         with st.expander(f"🔎 Full analysis — {r['symbol']}"):
@@ -1729,6 +1740,11 @@ elif page == "Stock Advisor":
         _plan_col, _donut_col = st.columns([1.6, 1])
 
         with _plan_col:
+            try:
+                from agents.blurbs import get_blurbs as _get_blurbs_plan
+                _blurbs_plan = _get_blurbs_plan([p["symbol"] for p in picks])
+            except Exception:
+                _blurbs_plan = {}
             for _i, _pk in enumerate(picks, 1):
                 _c = _score_color(_pk["score"])
                 _shares_txt = (f"{_pk['shares']:g}" if float(_pk['shares']) == int(_pk['shares'])
@@ -1755,6 +1771,7 @@ elif page == "Stock Advisor":
     <span style="font-size:.8rem;color:#94a3b8">({_pk['pct_of_deposit']:.0f}% of your deposit)</span>
   </div>
   {_score_bar(_pk['pct_of_deposit'], _c)}
+  {f'<div style="font-size:.78rem;color:#334155;margin-top:.5rem"><b>🏢 What they do:</b> {_blurbs_plan[_pk["symbol"]]}</div>' if _pk['symbol'] in _blurbs_plan else ''}
   <div style="font-size:.8rem;color:#64748b;margin-top:.5rem"><b style="color:#334155">Why:</b> {_pk['why']}</div>
   <div style="font-size:.72rem;color:#94a3b8;margin-top:.3rem">
     Health {_pk.get('fund_score') or '—'} · Trend {_pk.get('tech_score') or '—'} · News {_pk.get('sent_score') or '—'}
@@ -2002,6 +2019,14 @@ elif page == "Scan & Alerts":
             def _deep_dive(_rr):
                 _s = _rr.get("stats") or {}
                 st.markdown(f"## {_rr['symbol']}  ·  {_rr.get('industry','')}")
+                try:
+                    from agents.blurbs import get_blurbs as _get_blurbs_dd
+                    _dd_blurb = _get_blurbs_dd([_rr["symbol"]]).get(_rr["symbol"])
+                    if _dd_blurb:
+                        st.markdown(f"<div style='font-size:.85rem;color:#334155'><b>🏢 What they do:</b> {_dd_blurb}</div>",
+                                    unsafe_allow_html=True)
+                except Exception:
+                    pass
                 _dd_chips = " ".join([_badge(_rr.get("action", "Watch"))] + [
                     f'<span style="background:#f1f5f9;color:#334155;border-radius:99px;padding:2px 9px;font-size:.75rem;font-weight:600">{c}</span>'
                     for c in _rr.get("style_chips", [])
