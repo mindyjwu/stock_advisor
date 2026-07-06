@@ -1456,14 +1456,21 @@ elif page == "Stock Advisor":
         with c4:
             _spark = _sparkline(r["symbol"], with_axes=True)
             if _spark:
-                st.plotly_chart(_spark, width="stretch", config={"displayModeBar": False},
+                st.plotly_chart(_spark, use_container_width=True, config={"displayModeBar": False},
                                 key=f"sa_spark_{r['symbol']}")
         with c5:
-            st.markdown(f"**${r['current_price']}** <small style='color:#8a94a6'>now</small>  \n"
-                        f"<span style='color:#16a34a;font-weight:700'>${r['target_price']}</span> "
-                        f"<small style='color:#16a34a'>target (+{r['upside_pct']}%)</small>  \n"
-                        f"<small style='color:#8a94a6'>{r['suggested_quantity']} share(s) suggested</small>",
-                        unsafe_allow_html=True)
+            # Single-line pure-HTML block: bare $ signs in markdown text get
+            # parsed as LaTeX math and mangle the whole column
+            _qty_line = (f'<div style="font-size:.75rem;color:#8a94a6">{r["suggested_quantity"]:g} share(s) suggested</div>'
+                         if _safe_float(r.get("suggested_quantity")) > 0
+                         else '<div style="font-size:.75rem;color:#8a94a6">size it in the plan below</div>')
+            st.markdown(
+                f'<div style="font-weight:800;color:#0f172a">${r["current_price"]} '
+                f'<span style="font-weight:400;font-size:.75rem;color:#8a94a6">now</span></div>'
+                f'<div style="color:#16a34a;font-weight:700">${r["target_price"]} '
+                f'<span style="font-weight:400;font-size:.75rem">target (+{r["upside_pct"]}%)</span></div>'
+                f'{_qty_line}',
+                unsafe_allow_html=True)
         with c6:
             _saved_sa = r["symbol"] in saved_symbols_sa
             if st.button("★" if _saved_sa else "☆ Save", key=f"sa_save_{r['symbol']}"):
@@ -1540,7 +1547,7 @@ elif page == "Stock Advisor":
                 paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
                 font=dict(family="Inter", size=11),
             )
-            st.plotly_chart(_fig_lad, width="stretch", config={"displayModeBar": False})
+            st.plotly_chart(_fig_lad, use_container_width=True, config={"displayModeBar": False})
 
         _wl_all_sa = load_watchlist()
         with st.expander(f"👁 Your watchlist ({len(_wl_all_sa)} stocks the AI scores each run)"):
@@ -1995,7 +2002,7 @@ elif page == "Scan & Alerts":
                                           title="6-month price", title_font_size=13,
                                           paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
                                           yaxis=dict(gridcolor="#f1f5f9", tickprefix="$"), xaxis=dict(showgrid=False))
-                    st.plotly_chart(_fig_dd, width="stretch", config={"displayModeBar": False})
+                    st.plotly_chart(_fig_dd, use_container_width=True, config={"displayModeBar": False})
                 except Exception:
                     st.caption("Price chart unavailable right now.")
 
