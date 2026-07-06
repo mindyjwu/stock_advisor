@@ -167,6 +167,53 @@ def save_holdings(user_id: int, holdings: dict):
     fetch_ticker_info.cache_clear()
 
 
+def live_positions(positions: list, max_workers: int = 20) -> tuple:
+    """Enrich imported positions with live prices (disk-cached ~15 min).
+    Returns (positions, as_of_datetime). Any position whose quote fails keeps
+    its imported values, so the portfolio never goes blank."""
+    from concurrent.futures import ThreadPoolExecutor
+    from datetime import datetime
+
+    def _safe(v, default=0.0):
+        try:
+            f = float(v)
+            import math as _m
+            return default if _m.isnan(f) or _m.isinf(f) else f
+        except (TypeError, ValueError):
+            return default
+
+    def _one(p):
+        q = dict(p)
+        try:
+            info = fetch_ticker_info(p["symbol"])
+            price = info.get("currentPrice") or info.get("regularMarketPrice")
+            if price:
+                qty = _safe(p.get("quantity"))
+                price = float(price)
+                q["current_price"] = round(price, 4)
+                q["current_value"] = round(price * qty, 2)
+                total_cost = _safe(p.get("total_cost")) or _safe(p.get("cost_basis")) * qty
+                if total_cost:
+                    q["unrealized_gl"] = round(q["current_value"] - total_cost, 2)
+                    q["unrealized_gl_pct"] = round(q["unrealized_gl"] / total_cost * 100, 2)
+                chg = info.get("regularMarketChangePercent")
+                if chg is not None:
+                    chg = float(chg)
+                    q["day_change_pct"] = round(chg, 2)
+                    if chg > -100:
+                        prev = price / (1 + chg / 100)
+                        q["day_change"] = round((price - prev) * qty, 2)
+        except Exception:
+            pass
+        return q
+
+    if not positions:
+        return [], datetime.now()
+    with ThreadPoolExecutor(max_workers=max_workers) as ex:
+        out = list(ex.map(_one, positions))
+    return out, datetime.now()
+
+
 def load_user_settings(user_id: int) -> dict:
     """Per-user preferences (e.g. custom factor weights). Empty dict if unset."""
     path = _user_dir(user_id) / "settings.json"

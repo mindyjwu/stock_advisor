@@ -18,6 +18,7 @@ from data.loader import (
     load_watchlist as _load_watchlist, load_holdings as _load_holdings,
     save_watchlist as _save_watchlist, save_holdings as _save_holdings,
     load_user_settings as _load_user_settings, save_user_settings as _save_user_settings,
+    live_positions as _live_positions,
 )
 from db.store import (
     init_db,
@@ -233,7 +234,9 @@ UID = USER["id"]
 def load_watchlist():                  return _load_watchlist(UID)
 def save_watchlist(tickers):           return _save_watchlist(UID, tickers)
 def load_holdings():                   return _load_holdings(UID)
-def save_holdings(holdings):           return _save_holdings(UID, holdings)
+def save_holdings(holdings):
+    _save_holdings(UID, holdings)
+    _live_holdings_cached.clear()  # fresh import should show immediately
 def get_saved_picks():                 return _get_saved_picks(UID)
 def save_pick(symbol, industry, note=""): return _save_pick(UID, symbol, industry, note)
 def remove_pick(symbol):               return _remove_pick(UID, symbol)
@@ -245,6 +248,17 @@ def get_last_scan():                   return _get_last_scan(UID)
 def run_analysis(status_cb=None, **k): return _run_analysis(UID, status_cb=status_cb, **k)
 def load_user_settings():              return _load_user_settings(UID)
 def save_user_settings(s):             return _save_user_settings(UID, s)
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _live_holdings_cached(uid):
+    """Holdings with LIVE prices — re-fetched at most every 5 minutes, which
+    matches the page auto-refresh. Falls back to imported values per position."""
+    h = _load_holdings(uid)
+    pos, asof = _live_positions(h.get("positions", []))
+    return dict(h, positions=pos), asof.strftime("%-I:%M %p")
+
+def load_live_holdings():
+    return _live_holdings_cached(UID)
 
 ACTION_BADGE = {
     "Strong Buy": "badge-strong-buy",
@@ -300,6 +314,91 @@ def _empty_state(emoji, title, body, hint=None):
         f'{hint_html}</div>'
     )
 
+def _fmt_cap(mc):
+    try:
+        mc = float(mc)
+    except (TypeError, ValueError):
+        return None
+    if mc >= 1e12: return f"${mc/1e12:.1f}T"
+    if mc >= 1e9:  return f"${mc/1e9:.1f}B"
+    return f"${mc/1e6:.0f}M"
+
+def _cap_label(mc):
+    try:
+        mc = float(mc)
+    except (TypeError, ValueError):
+        return None
+    if mc >= 2e11: return "mega-cap"
+    if mc >= 1e10: return "large-cap"
+    if mc >= 2e9:  return "mid-cap"
+    return "small-cap"
+
+def _sv(v, kind="num"):
+    """Safe stat formatting for tooltips and stat grids."""
+    if v is None: return "—"
+    try:
+        v = float(v)
+    except (TypeError, ValueError):
+        return "—"
+    if math.isnan(v) or math.isinf(v): return "—"
+    if kind == "pct_frac": return f"{v*100:+.1f}%"
+    if kind == "pct":      return f"{v:+.2f}%"
+    if kind == "yield":    return f"{(v*100 if v < 1 else v):.2f}%"
+    return f"{v:.1f}"
+
+def _stats_lines(_stats):
+    cap_txt = _fmt_cap(_stats.get("market_cap"))
+    cap_lbl = _cap_label(_stats.get("market_cap"))
+    return [
+        f"Market cap: {cap_txt or '—'}" + (f" ({cap_lbl})" if cap_lbl else ""),
+        f"P/E ratio: {_sv(_stats.get('pe'))}",
+        f"Today: {_sv(_stats.get('day_change_pct'), 'pct')}",
+        f"52-week change: {_sv(_stats.get('wk52_change'), 'pct_frac')}",
+        f"Profit margin: {_sv(_stats.get('profit_margin'), 'pct_frac')}",
+        f"Revenue growth: {_sv(_stats.get('rev_growth'), 'pct_frac')}",
+        f"Dividend yield: {_sv(_stats.get('div_yield'), 'yield')}",
+        f"Beta (volatility vs market): {_sv(_stats.get('beta'))}",
+    ]
+
+def _explain_stats(stats):
+    """Turn raw statistics into plain-English teaching moments."""
+    out = []
+    def _f(k):
+        try:
+            v = float(stats.get(k))
+            return None if math.isnan(v) or math.isinf(v) else v
+        except (TypeError, ValueError):
+            return None
+    pe = _f("pe")
+    if pe and pe > 0:
+        out.append(f"**Price tag:** you pay ~${pe:.0f} for every $1 of yearly profit — "
+                   + ("cheap vs the market average (~25)." if pe < 18
+                      else "about market average." if pe <= 30
+                      else "pricey — big future growth is already baked into the price."))
+    mc = _f("market_cap")
+    if mc:
+        out.append(f"**Size:** {_fmt_cap(mc)} {_cap_label(mc)} — "
+                   + ("a giant; steadier, but slower to double." if mc >= 2e11
+                      else "an established large company." if mc >= 1e10
+                      else "smaller company — more room to grow, bigger swings."))
+    beta = _f("beta")
+    if beta:
+        if beta >= 1.3:
+            out.append(f"**Ride:** beta {beta:.1f} — tends to move ~{beta:.1f}% for every 1% the market moves. A wilder ride.")
+        elif beta <= 0.8:
+            out.append(f"**Ride:** beta {beta:.1f} — calmer than the overall market.")
+    wk52 = _f("wk52_change")
+    if wk52 is not None:
+        out.append(f"**Past year:** {'up' if wk52 >= 0 else 'down'} {abs(wk52)*100:.0f}% — "
+                   + ("momentum is real, but you're not early." if wk52 > 0.4
+                      else "solid year." if wk52 > 0
+                      else "beaten down — could be a bargain or a warning."))
+    dy = _f("div_yield")
+    if dy and dy > 0:
+        dy_pct = dy * 100 if dy < 1 else dy
+        out.append(f"**Gets you paid:** ~{dy_pct:.1f}% a year in dividends just for holding it.")
+    return out
+
 def _skeleton_loader(message):
     """Shimmering placeholder shown while an analysis/scan runs."""
     kpis = "".join('<div class="skeleton" style="height:88px;flex:1"></div>' for _ in range(4))
@@ -343,7 +442,7 @@ def _safe_float(v, default=0.0):
 
 # ── Sidebar portfolio snapshot ────────────────────────────────────────────────
 def _sidebar_snapshot():
-    h = load_holdings()
+    h, _asof = load_live_holdings()
     positions = h.get("positions", [])
     cash = _safe_float(h.get("cash", 0))
 
@@ -392,16 +491,16 @@ def _sidebar_snapshot():
         "n_positions":  len(positions),
         "n_watchlist":  len(load_watchlist()),
         "has_rich":     has_rich,
+        "asof":         _asof,
     }
 
-PAGES = ["Dashboard", "Invest Cash", "Scan & Alerts", "Lists & History", "Performance", "How It Works", "Settings"]
+PAGES = ["Dashboard", "Invest Cash", "Scan & Alerts", "Lists & History", "How It Works", "Settings"]
 PAGE_ICONS = {
     "Dashboard":      "◼",
     "Invest Cash":    "💰",
     "Scan & Alerts":  "🔭",
     "How It Works":   "📖",
     "Lists & History":"📋",
-    "Performance":    "📊",
     "Settings":       "⚙️",
 }
 
@@ -568,7 +667,7 @@ with st.sidebar:
   <div style="border-top:1px solid #1e2438;margin:.25rem .5rem"></div>
   <div style="display:flex;justify-content:space-between;padding:.18rem .5rem">
     <span style="color:#475569">{ai_dot} {model_short}</span>
-    <span style="color:#334155">{refresh_time}</span>
+    <span style="color:#334155">prices {snap['asof']}</span>
   </div>
 </div>
 """, unsafe_allow_html=True)
@@ -585,7 +684,7 @@ with st.sidebar:
   <div style="color:#475569;font-size:.65rem;margin-top:.3rem">Import CSV in Settings for G/L</div>
   <div style="border-top:1px solid #1e2438;margin:.3rem 0"></div>
   <div style="display:flex;justify-content:space-between;padding:.15rem 0">
-    <span style="color:#475569">{ai_dot} {model_short}</span><span style="color:#334155">{refresh_time}</span>
+    <span style="color:#475569">{ai_dot} {model_short}</span><span style="color:#334155">prices {snap['asof']}</span>
   </div>
 </div>
 """, unsafe_allow_html=True)
@@ -643,6 +742,17 @@ if page == "Dashboard":  # ── includes Portfolio ──
 
     results = st.session_state.get("results")
     regime  = st.session_state.get("regime")
+
+    # After a restart, fall back to the last saved analysis so the Dashboard
+    # (incl. portfolio and performance sections) never comes up blank
+    if not results:
+        _db_rows_dash = get_latest_run_suggestions()
+        if _db_rows_dash:
+            _wl_ind_dash = {t["symbol"]: t.get("industry", "Misc") for t in load_watchlist()}
+            results = [dict(r, industry=_wl_ind_dash.get(r["symbol"], "Misc")) for r in _db_rows_dash]
+            _last_dash = max(r["run_at"] for r in _db_rows_dash)[:16].replace("T", " ")
+            st.caption(f"Showing your last saved analysis ({_last_dash} UTC) — "
+                       "hit ▶ Run Analysis Now for fresh scores.")
 
     # KPI strip
     col1, col2, col3, col4 = st.columns(4)
@@ -728,7 +838,7 @@ if page == "Dashboard":  # ── includes Portfolio ──
         ), unsafe_allow_html=True)
 
     # ── Portfolio pie charts ──────────────────────────────────────────────────
-    _h_pie = load_holdings()
+    _h_pie, _pie_asof = load_live_holdings()
     _positions_pie = _h_pie.get("positions", [])
 
     # Thematic industry map (ticker → theme)
@@ -1154,6 +1264,22 @@ if page == "Dashboard":  # ── includes Portfolio ──
                         if _sent_r:
                             st.markdown("**📰 News Mood**")
                             for _rr in _sent_r: st.markdown(f"  • {_rr}")
+                        # By the numbers + what they mean (beginner education)
+                        _st_sugg = r.get("stats") or {}
+                        if _st_sugg:
+                            st.markdown("**📐 By the numbers**")
+                            _sl = _stats_lines(_st_sugg)
+                            _sc1, _sc2 = st.columns(2)
+                            for _half, _col in ((_sl[:4], _sc1), (_sl[4:], _sc2)):
+                                with _col:
+                                    for _line in _half:
+                                        st.markdown(f"<div style='font-size:.78rem;color:#475569;padding:.05rem 0'>{_line}</div>",
+                                                    unsafe_allow_html=True)
+                            _teach = _explain_stats(_st_sugg)
+                            if _teach:
+                                st.markdown("**🎓 What that means**")
+                                for _tl in _teach:
+                                    st.markdown(f"- {_tl}")
                         # News headlines
                         _hl = r.get("headlines", [])
                         if _hl:
@@ -1210,12 +1336,14 @@ if page == "Dashboard":  # ── includes Portfolio ──
         st.plotly_chart(fig2, use_container_width=True)
 
 
+    # ── Performance report card (filled at end of script, after its def) ─────
+    _perf_slot = st.container()
+
     # ── Portfolio section (bottom of Dashboard) ───────────────────────────────
     st.markdown("---")
     st.markdown("## My Portfolio")
-    st.markdown("Imported from J.P. Morgan · all figures from your last CSV export.")
-
-    h = load_holdings()
+    h, _pf_asof = load_live_holdings()
+    st.markdown(f"Live prices as of **{_pf_asof}** (refreshes every 5 min) · cost basis from your CSV import.")
     positions = h.get("positions", [])
     cash = h.get("cash", 0.0)
 
@@ -1512,7 +1640,7 @@ elif page == "Invest Cash":
             st.rerun()
         st.stop()
 
-    holdings = load_holdings()
+    holdings, _ = load_live_holdings()
     _avail_cash = _safe_float(holdings.get("cash", 0))
 
     # ── Step 1: how much? ─────────────────────────────────────────────────────
@@ -1850,52 +1978,6 @@ elif page == "Scan & Alerts":
 
             _wl_syms_now  = {t["symbol"] for t in load_watchlist()}
             _saved_now    = {p["symbol"] for p in get_saved_picks()}
-
-            def _fmt_cap(mc):
-                try:
-                    mc = float(mc)
-                except (TypeError, ValueError):
-                    return None
-                if mc >= 1e12: return f"${mc/1e12:.1f}T"
-                if mc >= 1e9:  return f"${mc/1e9:.1f}B"
-                return f"${mc/1e6:.0f}M"
-
-            def _cap_label(mc):
-                try:
-                    mc = float(mc)
-                except (TypeError, ValueError):
-                    return None
-                if mc >= 2e11: return "mega-cap"
-                if mc >= 1e10: return "large-cap"
-                if mc >= 2e9:  return "mid-cap"
-                return "small-cap"
-
-            def _sv(v, kind="num"):
-                """Safe stat formatting for tooltips/deep-dive."""
-                if v is None: return "—"
-                try:
-                    v = float(v)
-                except (TypeError, ValueError):
-                    return "—"
-                if math.isnan(v) or math.isinf(v): return "—"
-                if kind == "pct_frac": return f"{v*100:+.1f}%"
-                if kind == "pct":      return f"{v:+.2f}%"
-                if kind == "yield":    return f"{(v*100 if v < 1 else v):.2f}%"
-                return f"{v:.1f}"
-
-            def _stats_lines(_stats):
-                cap_txt = _fmt_cap(_stats.get("market_cap"))
-                cap_lbl = _cap_label(_stats.get("market_cap"))
-                return [
-                    f"Market cap: {cap_txt or '—'}" + (f" ({cap_lbl})" if cap_lbl else ""),
-                    f"P/E ratio: {_sv(_stats.get('pe'))}",
-                    f"Today: {_sv(_stats.get('day_change_pct'), 'pct')}",
-                    f"52-week change: {_sv(_stats.get('wk52_change'), 'pct_frac')}",
-                    f"Profit margin: {_sv(_stats.get('profit_margin'), 'pct_frac')}",
-                    f"Revenue growth: {_sv(_stats.get('rev_growth'), 'pct_frac')}",
-                    f"Dividend yield: {_sv(_stats.get('div_yield'), 'yield')}",
-                    f"Beta (volatility vs market): {_sv(_stats.get('beta'))}",
-                ]
 
             for _i, _r in enumerate(_shown[:15], 1):
                 _sc = _r.get("score", 0)
@@ -2288,11 +2370,12 @@ elif page == "Lists & History":
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# PERFORMANCE TRACKER
+# PERFORMANCE SECTION (renders inside Dashboard via _perf_slot container)
 # ══════════════════════════════════════════════════════════════════════════════
-elif page == "Performance":
-    st.markdown("# Suggestion Performance")
-    st.markdown("Track how AI suggestions have performed across different time horizons.")
+def _render_performance_section():
+    st.markdown("---")
+    st.markdown('<div class="section-header">📊 How Past Suggestions Performed</div>', unsafe_allow_html=True)
+    st.caption("The honest report card — pick a time window and see how every AI call actually did afterwards.")
 
     # Timeframe selector
     _tf_opts = ["Since Suggestion", "1 Week", "1 Month", "3 Months", "6 Months"]
@@ -2423,7 +2506,7 @@ elif page == "Performance":
 # ══════════════════════════════════════════════════════════════════════════════
 # HOW IT WORKS
 # ══════════════════════════════════════════════════════════════════════════════
-elif page == "How It Works":
+if page == "How It Works":
     st.markdown("# 📖 How It Works")
     st.markdown("What's behind every recommendation — and the dials you can turn yourself.")
 
@@ -2947,3 +3030,9 @@ elif page == "Settings":
             save_holdings(h)
             st.success(f"Added {sym}")
             st.rerun()
+
+
+# ── Fill the Dashboard's performance slot (function is defined above by now) ──
+if page == "Dashboard" and "_perf_slot" in globals():
+    with _perf_slot:
+        _render_performance_section()

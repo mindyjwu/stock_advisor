@@ -113,6 +113,17 @@ def run_analysis(
         suggestion["industry"]      = pr["industry"]
         suggestion["day_change_pct"] = pr["info"].get("regularMarketChangePercent")
         suggestion["headlines"]     = sent.get("headlines", [])
+        _info = pr["info"]
+        suggestion["stats"] = {
+            "market_cap":     _info.get("marketCap"),
+            "pe":             _info.get("trailingPE"),
+            "day_change_pct": _info.get("regularMarketChangePercent"),
+            "wk52_change":    _info.get("52WeekChange"),
+            "profit_margin":  _info.get("profitMargins"),
+            "rev_growth":     _info.get("revenueGrowth"),
+            "div_yield":      _info.get("dividendYield"),
+            "beta":           _info.get("beta"),
+        }
 
         all_reasons = pr["fund"]["reasons"] + pr["tech"]["reasons"] + sent["reasons"]
 
