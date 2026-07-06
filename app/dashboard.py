@@ -1415,14 +1415,35 @@ elif page == "Stock Advisor":
 
     # ══ 2) Today's top picks — stocks you DON'T own yet ══════════════════════
     st.markdown('<div class="section-header">💡 Today\'s top picks — stocks you don\'t own yet</div>', unsafe_allow_html=True)
-    st.caption(f"Built {data_note}. Stocks you already hold are on the Dashboard's checkup instead. "
-               "Curious how scoring works? See 📖 How It Works.")
 
+    # Pool = watchlist analysis + last market scan. The watchlist is mostly
+    # stocks already held, so the scan is where fresh names come from.
     _picks_sa = [r for r in results
                  if r["symbol"] not in _held_syms_sa and r.get("action") in ("Strong Buy", "Buy")]
+    _scan_last_sa = get_last_scan()
+    _n_scan_picks = 0
+    if _scan_last_sa and _scan_last_sa.get("full"):
+        _known_sa = {r["symbol"] for r in _picks_sa} | _held_syms_sa
+        _scan_extra_sa = [dict(r, _from_scan=True) for r in _scan_last_sa["full"]
+                          if r["symbol"] not in _known_sa
+                          and r.get("action") in ("Strong Buy", "Buy")]
+        _n_scan_picks = len(_scan_extra_sa)
+        _picks_sa += _scan_extra_sa
+    _picks_sa.sort(key=lambda x: x.get("score", 0), reverse=True)
+
+    _pool_note = "your watchlist"
+    if _n_scan_picks:
+        _pool_note += f" + your last market scan ({_n_scan_picks} discoveries, marked 🔭)"
+    st.caption(f"Built {data_note}. Pool: {_pool_note}. "
+               "Stocks you already hold are on the Dashboard's checkup instead. "
+               "Curious how scoring works? See 📖 How It Works.")
+
     if not _picks_sa:
         st.info("Nothing you don't already own is scoring Buy or better right now — "
-                "run a fresh analysis, or discover new names with 🔭 Scan & Alerts.")
+                "run a 🔭 Market Scan to search ~500 stocks beyond your watchlist.")
+    elif len(_picks_sa) < 5 and not _n_scan_picks:
+        st.info("Slim pickings — your watchlist is mostly stocks you already own. "
+                "Run a 🔭 Market Scan and its discoveries will appear here automatically.")
     saved_symbols_sa = {p["symbol"] for p in get_saved_picks()}
 
     for r in _picks_sa[:8]:
@@ -1437,7 +1458,9 @@ elif page == "Stock Advisor":
                 _arrow = "▲" if _day_chg >= 0 else "▼"
                 _chg_c = "#16a34a" if _day_chg >= 0 else "#dc2626"
                 _chg_str = f"<span style='color:{_chg_c};font-size:.75rem'>{_arrow} {abs(_day_chg):.1f}% today</span>"
-            st.markdown(f"**{r['symbol']}**  \n<small style='color:#8a94a6'>{r.get('industry','')}</small>  \n{_chg_str}",
+            _src_chip = ("<br><span style='background:#e0f2fe;color:#0369a1;border-radius:99px;padding:1px 8px;"
+                         "font-size:.68rem;font-weight:600'>🔭 scan find</span>") if r.get("_from_scan") else ""
+            st.markdown(f"**{r['symbol']}**  \n<small style='color:#8a94a6'>{r.get('industry','')}</small>  \n{_chg_str}{_src_chip}",
                         unsafe_allow_html=True)
         with c2:
             st.markdown(_badge(action), unsafe_allow_html=True)
@@ -1521,6 +1544,14 @@ elif page == "Stock Advisor":
                 for _h in _hl_sa[:4]:
                     st.markdown(f"📰 {_h}")
         st.divider()
+
+    # Near-misses: not buys today, but worth keeping an eye on
+    _bench_sa = sorted([r for r in results
+                        if r["symbol"] not in _held_syms_sa and r.get("action") == "Watch"],
+                       key=lambda x: x.get("score", 0), reverse=True)[:8]
+    if _bench_sa:
+        st.caption("🪑 On the bench (score 45–59, wait and see): "
+                   + " · ".join(f"{r['symbol']} ({r['score']:.0f})" for r in _bench_sa))
 
     # ══ 3) Score ladder — every candidate at a glance ═════════════════════════
     if _picks_sa:
@@ -1645,20 +1676,18 @@ elif page == "Stock Advisor":
             help="Fewer stocks = more concentrated. More stocks = more diversified.",
         )
 
-    # Aggressive mode digs beyond your watchlist: pull in high scorers from
-    # your last market scan — often smaller, less obvious names
+    # The plan draws from the same pool as the picks above: watchlist + last
+    # market scan (any risk style — the caps and quality bars still apply)
     plan_candidates = results
-    if profile_key == "aggressive":
-        _scan_saved = get_last_scan()
-        if _scan_saved and _scan_saved.get("full"):
-            _known_syms = {r["symbol"] for r in results}
-            _extra = [r for r in _scan_saved["full"]
-                      if r["symbol"] not in _known_syms and r.get("score", 0) >= 60]
-            if _extra:
-                plan_candidates = results + _extra
-                st.caption(f"🚀 Aggressive mode also considers {len(_extra)} discoveries from your last "
-                           f"market scan: {', '.join(r['symbol'] for r in _extra[:6])}"
-                           f"{'…' if len(_extra) > 6 else ''}")
+    if _scan_last_sa and _scan_last_sa.get("full"):
+        _known_syms = {r["symbol"] for r in results}
+        _extra = [r for r in _scan_last_sa["full"]
+                  if r["symbol"] not in _known_syms and r.get("score", 0) >= 60]
+        if _extra:
+            plan_candidates = results + _extra
+            st.caption(f"Also considering {len(_extra)} scan discoveries: "
+                       f"{', '.join(r['symbol'] for r in _extra[:6])}"
+                       f"{'…' if len(_extra) > 6 else ''}")
 
     # ── Build the plan (pure computation — instant) ───────────────────────────
     plan = build_plan(
