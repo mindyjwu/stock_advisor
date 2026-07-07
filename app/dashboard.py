@@ -399,6 +399,35 @@ def _explain_stats(stats):
         out.append(f"**Gets you paid:** ~{dy_pct:.1f}% a year in dividends just for holding it.")
     return out
 
+def _entry_reasons(r):
+    """1-2 plain-English reasons about ENTRY TIMING — is now a decent moment
+    to buy, or would you be chasing an all-time high?"""
+    out = []
+    stats = r.get("stats") or {}
+    def _f(v):
+        try:
+            v = float(v)
+            return None if math.isnan(v) or math.isinf(v) else v
+        except (TypeError, ValueError):
+            return None
+    px, hi = _f(r.get("current_price")), _f(stats.get("wk52_high"))
+    if px and hi and hi > 0:
+        dist = px / hi - 1
+        if dist >= -0.02:
+            out.append("⚠️ at its 52-week high — you'd be buying the top; a pullback could give a better price")
+        elif dist >= -0.08:
+            out.append(f"{abs(dist)*100:.0f}% below its 52-week high — near the top, not a bargain entry")
+        else:
+            out.append(f"{abs(dist)*100:.0f}% below its 52-week high — you're not chasing the top")
+    pe = _f(stats.get("pe"))
+    if pe and 0 < pe < 20:
+        out.append(f"P/E {pe:.0f} — cheaper than the market average (~25)")
+    up = _f(r.get("upside_pct"))
+    if len(out) < 2 and up and up >= 15:
+        out.append(f"analyst targets imply +{up:.0f}% from here")
+    return out[:2]
+
+
 def _skeleton_loader(message):
     """Shimmering placeholder shown while an analysis/scan runs."""
     kpis = "".join('<div class="skeleton" style="height:88px;flex:1"></div>' for _ in range(4))
@@ -1513,6 +1542,10 @@ elif page == "Stock Advisor":
         if _blurb_row:
             st.markdown(f"<div style='font-size:.8rem;color:#334155;margin:-.2rem 0 .3rem 0'>"
                         f"<b>🏢 What they do:</b> {_blurb_row}</div>", unsafe_allow_html=True)
+        _entry_row = _entry_reasons(r)
+        if _entry_row:
+            st.markdown(f"<div style='font-size:.8rem;color:#334155;margin:0 0 .3rem 0'>"
+                        f"<b>🎯 Why now:</b> {' · '.join(_entry_row)}</div>", unsafe_allow_html=True)
 
         # Full-width analysis — never squeezed into a narrow column
         with st.expander(f"🔎 Full analysis — {r['symbol']}"):
@@ -1772,6 +1805,7 @@ elif page == "Stock Advisor":
   </div>
   {_score_bar(_pk['pct_of_deposit'], _c)}
   {f'<div style="font-size:.78rem;color:#334155;margin-top:.5rem"><b>🏢 What they do:</b> {_blurbs_plan[_pk["symbol"]]}</div>' if _pk['symbol'] in _blurbs_plan else ''}
+  {f'<div style="font-size:.78rem;color:#334155;margin-top:.35rem"><b>🎯 Why now:</b> {" · ".join(_entry_reasons(_pk))}</div>' if _entry_reasons(_pk) else ''}
   <div style="font-size:.8rem;color:#64748b;margin-top:.5rem"><b style="color:#334155">Why:</b> {_pk['why']}</div>
   <div style="font-size:.72rem;color:#94a3b8;margin-top:.3rem">
     Health {_pk.get('fund_score') or '—'} · Trend {_pk.get('tech_score') or '—'} · News {_pk.get('sent_score') or '—'}

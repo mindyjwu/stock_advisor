@@ -123,6 +123,7 @@ def run_analysis(
             "rev_growth":     _info.get("revenueGrowth"),
             "div_yield":      _info.get("dividendYield"),
             "beta":           _info.get("beta"),
+            "wk52_high":      _info.get("fiftyTwoWeekHigh"),
         }
 
         all_reasons = pr["fund"]["reasons"] + pr["tech"]["reasons"] + sent["reasons"]

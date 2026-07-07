@@ -148,6 +148,7 @@ def scan_market(user_id: int, shortlist_size: int = 25, status_cb=None, max_work
             "rev_growth":     _info.get("revenueGrowth"),
             "div_yield":      _info.get("dividendYield"),
             "beta":           _info.get("beta"),
+            "wk52_high":      _info.get("fiftyTwoWeekHigh"),
         }
         all_reasons = item["fund_reasons"] + item["tech_reasons"] + sent["reasons"]
         suggestion["reasons"] = all_reasons

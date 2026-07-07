@@ -49,10 +49,10 @@ PROFILES = {
         label="Balanced",
         emoji="⚖️",
         min_score=60,
-        exponent=1.6,
-        max_stock_pct=0.30,
+        exponent=1.4,
+        max_stock_pct=0.25,
         max_sector_pct=0.45,
-        max_positions=6,
+        max_positions=7,
         concentration_limit=0.10,
         description="Focused but still diversified — the sweet spot for most people.",
     ),
@@ -221,6 +221,11 @@ def build_plan(
             w *= 0.5  # already own a meaningful slice — go easier
         if r.get("confidence") == "mixed":
             w *= 0.75  # factor models disagree — trim the bet
+        # Entry-point awareness: don't pile into stocks sitting at the very top
+        _hi = _num((r.get("stats") or {}).get("wk52_high"))
+        _px = _num(r.get("current_price"))
+        if _hi > 0 and _px >= 0.98 * _hi:
+            w *= 0.8  # at its 52-week high — buying strength, size down
         raw[r["symbol"]] = w
 
     w = _clamp_and_redistribute(raw, profile["max_stock_pct"])
@@ -283,7 +288,8 @@ def build_plan(
             for p in sorted(picks, key=lambda x: x["score"], reverse=True):
                 price = float(p["current_price"])
                 new_val = (p["_shares"] + 1) * price
-                if price <= leftover and new_val <= deposit * (profile["max_stock_pct"] + 0.10):
+                # tight tolerance: a loose sweep let 2-3 stocks swallow the budget
+                if price <= leftover and new_val <= deposit * (profile["max_stock_pct"] + 0.04):
                     p["_shares"] += 1
                     leftover -= price
                     changed = True
@@ -313,6 +319,7 @@ def build_plan(
             "sent_score":     p.get("sent_score"),
             "target_price":   p.get("target_price"),
             "upside_pct":     p.get("upside_pct"),
+            "stats":          p.get("stats") or {},
         })
 
     sector_mix = {}
