@@ -33,6 +33,10 @@ from agents.screener import STYLE_META
 from scripts.run_analysis import run_analysis as _run_analysis
 from agents.allocator import build_plan, PROFILES
 from app.auth import require_login, logout
+from app.config import (
+    INDUSTRIES, AI_MODELS, THEME_MAP, PIE_COLORS, ACTION_COLORS,
+    POS_COLOR, NEG_COLOR,
+)
 
 # ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -91,11 +95,11 @@ st.markdown("""
     box-shadow: 0 4px 14px rgba(16,24,40,.08);
     transform: translateY(-1px);
   }
-  .metric-label { font-size:.7rem; font-weight:700; letter-spacing:.09em;
-    color:#8a94a6; text-transform:uppercase; }
+  .metric-label { font-size:.72rem; font-weight:700; letter-spacing:.09em;
+    color:#64748b; text-transform:uppercase; }
   .metric-value { font-size:1.7rem; font-weight:800; color:#0f172a; margin-top:.3rem;
     line-height:1.1; letter-spacing:-.02em; font-variant-numeric: tabular-nums; }
-  .metric-sub   { font-size:.8rem; color:#8a94a6; margin-top:.35rem; }
+  .metric-sub   { font-size:.8rem; color:#64748b; margin-top:.35rem; }
 
   /* ── Badges: softer pastels ── */
   .badge { display:inline-block; padding:3px 11px; border-radius:999px;
@@ -219,6 +223,25 @@ st.markdown("""
   ::-webkit-scrollbar-thumb { background:#d7dce7; border-radius:99px; }
   ::-webkit-scrollbar-track { background:transparent; }
   #MainMenu, footer { visibility:hidden; }
+
+  /* ── Accessibility ── */
+  /* Visible keyboard focus for interactive elements */
+  button:focus-visible, a:focus-visible, summary:focus-visible,
+  [role="button"]:focus-visible, [data-baseweb="input"] input:focus-visible,
+  [data-baseweb="select"]:focus-within {
+    outline: 2px solid #4f46e5 !important;
+    outline-offset: 2px !important;
+  }
+  /* Honor users who ask the OS to minimize motion (main uses transitions + a
+     shimmer keyframe); disable animation so nothing pulses or slides for them */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      transition-duration: .01ms !important;
+      animation-duration: .01ms !important;
+      animation-iteration-count: 1 !important;
+      scroll-behavior: auto !important;
+    }
+  }
 </style>
 """, unsafe_allow_html=True)
 
@@ -267,12 +290,6 @@ ACTION_BADGE = {
     "Avoid":      "badge-avoid",
 }
 
-INDUSTRIES = [
-    "Technology", "Financials", "Healthcare", "Energy",
-    "Consumer Staples", "Consumer Discretionary", "Industrials",
-    "Materials", "Real Estate", "Utilities", "Communication Services", "Misc",
-]
-
 # ── Helpers ───────────────────────────────────────────────────────────────────
 def _badge(action):
     cls = ACTION_BADGE.get(action, "badge-watch")
@@ -285,9 +302,10 @@ def _score_bar(score, color="#667eea"):
             f'</div>')
 
 def _score_color(score):
-    if score >= 75: return "#16a34a"
+    # Text-on-white colors — all clear WCAG AA as bold small text
+    if score >= 75: return "#15803d"
     if score >= 60: return "#2563eb"
-    if score >= 45: return "#d97706"
+    if score >= 45: return "#b45309"
     return "#dc2626"
 
 PLAIN_VERDICT = {
@@ -543,12 +561,6 @@ PAGE_ICONS = {
     "How It Works":   "📖",
     "Lists & History":"📋",
     "Settings":       "⚙️",
-}
-
-AI_MODELS = {
-    "Claude Sonnet 4.6 (fast)":   "claude-sonnet-4-6",
-    "Claude Opus 4.8 (powerful)":  "claude-opus-4-8",
-    "Claude Haiku 4.5 (cheap)":    "claude-haiku-4-5-20251001",
 }
 
 if "page" not in st.session_state:
@@ -843,17 +855,14 @@ if page == "Dashboard":  # ── includes Portfolio ──
                 "Why":           (", ".join(_r.get("reasons", [])[:2]) or "—")[:80],
             })
         _rec_df = pd.DataFrame(_rec_rows)
-        _action_colors = {
-            "Strong Buy": "#16a34a", "Buy": "#10b981",
-            "Hold": "#f59e0b", "Sell": "#ef4444", "Strong Sell": "#dc2626",
-        }
         def _color_action(v):
-            c = _action_colors.get(v, "#6b7280")
+            c = ACTION_COLORS.get(v, "#475569")
             return f"color:{c};font-weight:700"
         def _color_upside(v):
             try:
                 fv = float(str(v).replace("%",""))
-                return "color:#16a34a;font-weight:600" if fv > 0 else "color:#ef4444;font-weight:600"
+                c = POS_COLOR if fv > 0 else NEG_COLOR
+                return f"color:{c};font-weight:600"
             except Exception:
                 return ""
         st.dataframe(
@@ -879,44 +888,8 @@ if page == "Dashboard":  # ── includes Portfolio ──
     _h_pie, _pie_asof = load_live_holdings()
     _positions_pie = _h_pie.get("positions", [])
 
-    # Thematic industry map (ticker → theme)
-    _THEME_MAP = {
-        # AI & Semiconductors
-        "NVDA":"AI & Semiconductors","AMD":"AI & Semiconductors","AMAT":"AI & Semiconductors",
-        "TSM":"AI & Semiconductors","QCOM":"AI & Semiconductors","INTC":"AI & Semiconductors",
-        "AKTS":"AI & Semiconductors","DRAM":"AI & Semiconductors","NBIS":"AI & Semiconductors",
-        # AI Infrastructure & Cloud
-        "ANET":"AI Infra & Cloud","CRWV":"AI Infra & Cloud","ORCL":"AI Infra & Cloud",
-        "MSFT":"AI Infra & Cloud","PLTR":"AI Infra & Cloud","VSNT":"AI Infra & Cloud",
-        "SRAD":"AI Infra & Cloud",
-        # Consumer Tech
-        "AAPL":"Consumer Tech","TSLA":"Consumer Tech","NFLX":"Consumer Tech",
-        "SNAP":"Consumer Tech","PINS":"Consumer Tech","UBER":"Consumer Tech","TTWO":"Consumer Tech",
-        # Financials & Fintech
-        "GS":"Financials & Fintech","BAC":"Financials & Fintech","NU":"Financials & Fintech",
-        "SOFI":"Financials & Fintech","PYPL":"Financials & Fintech","BAM":"Financials & Fintech",
-        "FIG":"Financials & Fintech","OBDC":"Financials & Fintech","YRD":"Financials & Fintech",
-        "IRM":"Financials & Fintech",
-        # Healthcare & Pharma
-        "UNH":"Healthcare & Pharma","NVO":"Healthcare & Pharma",
-        "TAK":"Healthcare & Pharma","ABT":"Healthcare & Pharma",
-        # Energy & Nuclear
-        "CEG":"Energy & Utilities","VST":"Energy & Utilities","SMR":"Energy & Utilities",
-        "TE":"Energy & Utilities",
-        # Consumer Staples & Retail
-        "COST":"Consumer & Retail","PG":"Consumer & Retail","KHC":"Consumer & Retail",
-        "MGM":"Consumer & Retail","CCL":"Consumer & Retail","VAC":"Consumer & Retail",
-        # Travel & Transport
-        "UAL":"Travel & Transport","DAL":"Travel & Transport","CMCSA":"Media & Telecom",
-        "DIS":"Media & Telecom",
-        # Defense & Space
-        "KTOS":"Defense & Space","RKLB":"Defense & Space",
-        # International
-        "LVMUY":"International","TM":"International","SKM":"International",
-        "MUFG":"International","HNHPF":"International","FLGB":"International",
-        "FLJP":"International","EWJV":"International","FLCH":"International",
-        "ALMR":"International","USAR":"International","FLY":"International",
-    }
+    # Thematic industry map (ticker → theme) lives in app/config.py
+    _THEME_MAP = THEME_MAP
 
     def _best_val(p):
         cv = _safe_float(p.get("current_value"))
@@ -927,11 +900,7 @@ if page == "Dashboard":  # ── includes Portfolio ──
         return _safe_float(p.get("cost_basis")) * qty
 
     if _positions_pie:
-        _PIE_COLORS = [
-            "#6366f1","#8b5cf6","#3b82f6","#10b981","#f59e0b",
-            "#ef4444","#ec4899","#14b8a6","#f97316","#84cc16",
-            "#06b6d4","#a78bfa","#fb923c","#4ade80","#e879f9",
-        ]
+        _PIE_COLORS = PIE_COLORS
 
         def _make_donut(df_in, label_col, val_col, center_text):
             df_in = df_in[df_in[val_col] > 0].sort_values(val_col, ascending=False)

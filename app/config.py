@@ -62,7 +62,20 @@ PIE_COLORS = [
     "#06b6d4", "#a78bfa", "#fb923c", "#4ade80", "#e879f9",
 ]
 
+# Text colors for verdict labels rendered on white table cells.
+# All chosen to clear WCAG AA (>=4.5:1) as small bold text on #fff.
+# Covers the app's real verdicts (Strong Buy/Buy/Watch/Avoid) plus the
+# Hold/Sell aliases some views use.
 ACTION_COLORS = {
-    "Strong Buy": "#15803d", "Buy": "#047857",
-    "Hold": "#b45309", "Sell": "#dc2626", "Strong Sell": "#b91c1c",
+    "Strong Buy":  "#15803d",
+    "Buy":         "#047857",
+    "Watch":       "#b45309",
+    "Avoid":       "#b91c1c",
+    "Hold":        "#b45309",
+    "Sell":        "#dc2626",
+    "Strong Sell": "#b91c1c",
 }
+
+# Accessible green/red for gains/losses as small text on white.
+POS_COLOR = "#15803d"
+NEG_COLOR = "#dc2626"
