@@ -10,6 +10,7 @@ import {
   type Post,
   type LeaderRow,
 } from "@/lib/api";
+import Nav from "@/app/components/Nav";
 
 function timeAgo(iso: string): string {
   return (iso || "").slice(0, 16).replace("T", " ") + " UTC";
@@ -88,26 +89,13 @@ export default function Home() {
     }
   }
 
-  function logout() {
-    clearToken();
-    router.push("/login");
-  }
-
   if (!me) return <div className="wrap muted">Loading…</div>;
 
   const posts = tab === "following" ? feed : recent;
 
   return (
     <>
-      <div className="topbar">
-        <span className="brand">📈 Stock Advisor · Community</span>
-        <span className="row" style={{ gap: "0.8rem" }}>
-          <span className="muted" style={{ color: "#cbd5e1" }}>
-            {me.display_name}
-          </span>
-          <button onClick={logout}>Sign out</button>
-        </span>
-      </div>
+      <Nav />
 
       <div className="wrap">
         <div className="banner">

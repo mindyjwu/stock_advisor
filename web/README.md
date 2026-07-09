@@ -22,19 +22,23 @@ Production build:
 npm run build && npm start
 ```
 
-## What's here
+## Screens
 
-- `app/login/page.tsx` — sign in / create account (stores the bearer token).
-- `app/page.tsx` — home: post composer, feed (Everyone / Following), and the
-  verified-return leaderboard with follow buttons.
-- `lib/api.ts` — typed client for the FastAPI backend.
+- `app/login` — sign in / create account (stores the bearer token).
+- `app/page.tsx` (**Feed**) — post composer, feed (Everyone / Following), and
+  the verified-return leaderboard with follow buttons.
+- `app/discuss` — per-ticker discussion threads: open a ticker, read, and post.
+- `app/lists` — browse shared watchlists, publish your own, clone others' into
+  your watchlist, delete your own.
+- `app/profile` — edit bio/avatar and the two privacy opt-ins, see your
+  follower/following counts, and a member directory with follow buttons.
+- `app/components/Nav.tsx` — shared top navigation.
+- `lib/api.ts` — typed client for the FastAPI backend; `lib/useAuth.ts` — the
+  redirect-if-signed-out guard.
 
-## Scope
-
-This is an intentionally small but real slice — auth, feed, posting, likes,
-follow, and leaderboard — proving the API/frontend split end-to-end. Ticker
-threads, shared-watchlist browsing, and profile editing already exist in the
-API and are natural next additions to the UI.
+The full community surface is now in the UI. Not yet surfaced (exists in the
+Streamlit app, straightforward to add here): block/report moderation controls
+and the personal portfolio/performance views.
 
 ## Config
 

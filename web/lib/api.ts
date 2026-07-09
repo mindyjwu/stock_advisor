@@ -49,6 +49,42 @@ export interface AuthResult {
   token: string;
   user: User;
 }
+export interface Profile {
+  user_id: number;
+  bio: string;
+  avatar: string;
+  is_public: boolean;
+  share_returns: boolean;
+  display_name: string;
+  username: string;
+  followers: number;
+  following: number;
+}
+export interface Member {
+  user_id: number;
+  avatar: string;
+  bio: string;
+  display_name: string;
+  username: string;
+  share_returns: boolean;
+  following: boolean;
+}
+export interface SharedList {
+  id: number;
+  user_id: number;
+  name: string;
+  created_at: string;
+  avatar: string;
+  display_name: string;
+  tickers: { symbol: string; industry?: string }[];
+  is_own: boolean;
+}
+export interface ProfileUpdate {
+  bio: string;
+  avatar: string;
+  is_public: boolean;
+  share_returns: boolean;
+}
 
 async function req<T>(path: string, opts: RequestInit = {}): Promise<T> {
   const headers: Record<string, string> = {
@@ -86,6 +122,26 @@ export const api = {
     req<{ ok: boolean }>("/api/community/posts", { method: "POST", body: JSON.stringify(b) }),
   like: (id: number) => req<{ ok: boolean }>(`/api/community/posts/${id}/like`, { method: "POST" }),
   unlike: (id: number) => req<{ ok: boolean }>(`/api/community/posts/${id}/like`, { method: "DELETE" }),
+  deletePost: (id: number) => req<{ ok: boolean }>(`/api/community/posts/${id}`, { method: "DELETE" }),
   follow: (id: number) => req<{ ok: boolean }>(`/api/community/follow/${id}`, { method: "POST" }),
   unfollow: (id: number) => req<{ ok: boolean }>(`/api/community/follow/${id}`, { method: "DELETE" }),
+
+  // Profile & members
+  profile: () => req<Profile>("/api/profile/me"),
+  updateProfile: (b: ProfileUpdate) =>
+    req<Profile>("/api/profile/me", { method: "PUT", body: JSON.stringify(b) }),
+  members: () => req<Member[]>("/api/community/members"),
+
+  // Ticker threads
+  thread: (ticker: string) =>
+    req<Post[]>(`/api/community/threads/${encodeURIComponent(ticker)}`),
+
+  // Shared watchlists
+  sharedLists: () => req<SharedList[]>("/api/community/watchlists"),
+  publishList: (name: string) =>
+    req<{ ok: boolean }>("/api/community/watchlists", { method: "POST", body: JSON.stringify({ name }) }),
+  cloneList: (id: number) =>
+    req<{ added: number }>(`/api/community/watchlists/${id}/clone`, { method: "POST" }),
+  deleteList: (id: number) =>
+    req<{ ok: boolean }>(`/api/community/watchlists/${id}`, { method: "DELETE" }),
 };

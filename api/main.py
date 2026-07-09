@@ -128,16 +128,22 @@ def me(user: dict = Depends(get_current_user)):
 
 
 # ── Profile ─────────────────────────────────────────────────────────────────
+def _profile_payload(uid: int) -> dict:
+    prof = community.get_profile(uid)
+    prof.update(community.follow_counts(uid))  # adds followers / following
+    return prof
+
+
 @app.get("/api/profile/me")
 def get_my_profile(user: dict = Depends(get_current_user)):
-    return community.get_profile(user["id"])
+    return _profile_payload(user["id"])
 
 
 @app.put("/api/profile/me")
 def update_my_profile(body: ProfileIn, user: dict = Depends(get_current_user)):
     community.update_profile(user["id"], body.bio, body.avatar,
                              body.is_public, body.share_returns)
-    return community.get_profile(user["id"])
+    return _profile_payload(user["id"])
 
 
 # ── Community: leaderboard, feed, posts, threads, follow, members, lists ─────
@@ -252,6 +258,30 @@ def publish_watchlist(body: PublishIn, user: dict = Depends(get_current_user)):
     res = community.publish_watchlist(user["id"], body.name, load_watchlist(user["id"]))
     if "error" in res:
         raise HTTPException(status_code=400, detail=res["error"])
+    return {"ok": True}
+
+
+@app.post("/api/community/watchlists/{list_id}/clone")
+def clone_watchlist(list_id: int, user: dict = Depends(get_current_user)):
+    sl = community.get_shared_watchlist(list_id)
+    if not sl:
+        raise HTTPException(status_code=404, detail="Watchlist not found")
+    current = load_watchlist(user["id"])
+    have = {t["symbol"] for t in current}
+    added = 0
+    for t in sl["tickers"]:
+        if isinstance(t, dict) and t.get("symbol") and t["symbol"] not in have:
+            current.append({"symbol": t["symbol"], "industry": t.get("industry", "Misc")})
+            have.add(t["symbol"])
+            added += 1
+    if added:
+        save_watchlist(user["id"], current)
+    return {"added": added}
+
+
+@app.delete("/api/community/watchlists/{list_id}")
+def delete_watchlist(list_id: int, user: dict = Depends(get_current_user)):
+    community.delete_shared_watchlist(user["id"], list_id)
     return {"ok": True}
 
 

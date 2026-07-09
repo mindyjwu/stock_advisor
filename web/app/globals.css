@@ -66,3 +66,16 @@ textarea { resize: vertical; min-height: 64px; }
 .center { max-width: 380px; margin: 4rem auto; }
 .tabbar { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
 .tabbar button.active { background: #eef2ff; border-color: #c7d2fe; color: #4f46e5; }
+.navlink { color: #94a3b8; font-size: 0.85rem; font-weight: 600; }
+.navlink:hover { color: #cbd5e1; }
+.navlink.active { color: #fff; }
+.avatar-lg { font-size: 2.2rem; line-height: 1; }
+.code-chip {
+  display: inline-block; background: #f1f5f9; border: 1px solid var(--border);
+  border-radius: 6px; padding: 1px 7px; margin: 2px; font-size: 0.75rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.toggle-row { display: flex; align-items: flex-start; gap: 0.5rem; margin: 0.6rem 0; }
+.toggle-row input { width: auto; margin-top: 0.2rem; }
+.field-label { display: block; font-size: 0.8rem; color: var(--muted); margin: 0.6rem 0 0.2rem; }
+.success { color: var(--green); font-size: 0.85rem; margin-top: 0.5rem; }
