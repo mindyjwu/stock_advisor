@@ -10,35 +10,43 @@ JSON files and every DB row written before accounts existed.
 """
 import hashlib
 import hmac
-import pathlib
 import secrets
-import sqlite3
 from datetime import datetime
 from typing import Optional
 
-DB_PATH = pathlib.Path(__file__).parent / "advisor.db"
+from db.connection import connect as _conn, IS_POSTGRES, INTEGRITY_ERRORS
+
 PBKDF2_ITERATIONS = 200_000
 
 USERNAME_RULES = "3-20 characters: letters, numbers, underscores"
 
 
-def _conn():
-    con = sqlite3.connect(DB_PATH)
-    con.row_factory = sqlite3.Row
-    return con
-
-
 def init_users():
     with _conn() as con:
-        con.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            id           INTEGER PRIMARY KEY AUTOINCREMENT,
-            username     TEXT NOT NULL UNIQUE COLLATE NOCASE,
-            display_name TEXT,
-            pw_hash      TEXT NOT NULL,
-            is_owner     INTEGER NOT NULL DEFAULT 0,
-            created_at   TEXT NOT NULL
-        )""")
+        if IS_POSTGRES:
+            # Case-insensitive uniqueness via a functional index (Postgres has
+            # no COLLATE NOCASE).
+            con.executescript([
+                """CREATE TABLE IF NOT EXISTS users (
+                    id           BIGSERIAL PRIMARY KEY,
+                    username     TEXT NOT NULL,
+                    display_name TEXT,
+                    pw_hash      TEXT NOT NULL,
+                    is_owner     INTEGER NOT NULL DEFAULT 0,
+                    created_at   TEXT NOT NULL
+                )""",
+                "CREATE UNIQUE INDEX IF NOT EXISTS users_username_lower ON users (lower(username))",
+            ])
+        else:
+            con.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                username     TEXT NOT NULL UNIQUE COLLATE NOCASE,
+                display_name TEXT,
+                pw_hash      TEXT NOT NULL,
+                is_owner     INTEGER NOT NULL DEFAULT 0,
+                created_at   TEXT NOT NULL
+            )""")
 
 
 def hash_password(password: str) -> str:
@@ -85,14 +93,14 @@ def create_user(username: str, password: str, display_name: str = "") -> dict:
     with _conn() as con:
         first_user = con.execute("SELECT COUNT(*) AS n FROM users").fetchone()["n"] == 0
         try:
-            cur = con.execute(
+            user_id = con.insert_returning_id(
                 "INSERT INTO users (username, display_name, pw_hash, is_owner, created_at) VALUES (?,?,?,?,?)",
                 (username.strip(), (display_name or "").strip(), hash_password(password),
                  1 if first_user else 0, datetime.utcnow().isoformat()),
             )
-        except sqlite3.IntegrityError:
+        except INTEGRITY_ERRORS:
+            con.rollback()  # clear the aborted tx (matters on Postgres)
             return {"error": "That username is already taken."}
-        user_id = cur.lastrowid
 
     if first_user:
         # Owner inherits everything from the pre-account era
@@ -108,7 +116,7 @@ def authenticate(username: str, password: str) -> Optional[dict]:
     init_users()
     with _conn() as con:
         row = con.execute(
-            "SELECT * FROM users WHERE username = ? COLLATE NOCASE", ((username or "").strip(),)
+            "SELECT * FROM users WHERE lower(username) = lower(?)", ((username or "").strip(),)
         ).fetchone()
     if row and verify_password(password or "", row["pw_hash"]):
         return _row_to_user(row)
