@@ -1,0 +1,12 @@
+{
+  "tickers": [
+    { "symbol": "AAPL", "industry": "Technology" },
+    { "symbol": "MSFT", "industry": "Technology" },
+    { "symbol": "NVDA", "industry": "Technology" },
+    { "symbol": "JPM",  "industry": "Financials" },
+    { "symbol": "JNJ",  "industry": "Healthcare" },
+    { "symbol": "XOM",  "industry": "Energy" },
+    { "symbol": "PG",   "industry": "Consumer Staples" },
+    { "symbol": "AMZN", "industry": "Consumer Discretionary" }
+  ]
+}

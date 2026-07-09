@@ -3,7 +3,9 @@ import pathlib
 import shutil
 import yfinance as yf
 import pandas as pd
+from datetime import datetime
 from functools import lru_cache
+from typing import Optional
 
 ROOT = pathlib.Path(__file__).parent.parent
 # Legacy single-user files — migrated into the owner's folder on first signup
@@ -165,6 +167,30 @@ def save_holdings(user_id: int, holdings: dict):
     with open(_user_dir(user_id) / "holdings.json", "w") as f:
         json.dump(holdings, f, indent=2)
     fetch_ticker_info.cache_clear()
+
+
+def backup_holdings(user_id: int) -> Optional[str]:
+    """Copy the user's current holdings.json to a timestamped file so an import
+    can be undone. Returns the backup path (str), or None if there's nothing to
+    back up yet."""
+    src = _user_dir(user_id) / "holdings.json"
+    if not src.exists():
+        return None
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    dst = _user_dir(user_id) / f"holdings.{stamp}.bak.json"
+    shutil.copy2(src, dst)
+    return str(dst)
+
+
+def restore_holdings(user_id: int, backup_path: str) -> bool:
+    """Restore a holdings backup created by backup_holdings(). Returns True on
+    success, False if the backup is missing."""
+    src = pathlib.Path(backup_path)
+    if not src.exists():
+        return False
+    shutil.copy2(src, _user_dir(user_id) / "holdings.json")
+    fetch_ticker_info.cache_clear()
+    return True
 
 
 def live_positions(positions: list, max_workers: int = 20) -> tuple:
