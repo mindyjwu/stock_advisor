@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 import math
+import html
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
@@ -40,6 +41,7 @@ from agents.screener import STYLE_META
 from scripts.run_analysis import run_analysis as _run_analysis
 from agents.allocator import build_plan, PROFILES
 from app.auth import require_login, logout
+import db.community as _community
 from app.config import (
     INDUSTRIES, AI_MODELS, THEME_MAP, PIE_COLORS, ACTION_COLORS,
     POS_COLOR, NEG_COLOR,
@@ -254,6 +256,7 @@ st.markdown("""
 
 # ── Init ──────────────────────────────────────────────────────────────────────
 init_db()
+_community.init_community()
 
 # ── Auth gate: everything below runs for exactly one signed-in user ──────────
 USER = require_login()
@@ -282,6 +285,50 @@ def get_decision_map():                return _get_decision_map(UID)
 def log_import(**k):                    return _log_import(UID, **k)
 def get_imports(limit=20):             return _get_imports(UID, limit)
 def get_last_import():                  return _get_last_import(UID)
+
+# Community shims — the signed-in user is always the actor/viewer.
+def get_profile(uid=None):              return _community.get_profile(uid if uid is not None else UID)
+def update_profile(**k):                return _community.update_profile(UID, **k)
+def get_public_sharers():               return _community.get_public_sharers(exclude_user_id=UID)
+def get_public_profiles(limit=100):    return _community.get_public_profiles(UID, limit)
+def follow(target):                     return _community.follow(UID, target)
+def unfollow(target):                   return _community.unfollow(UID, target)
+def is_following(target):               return _community.is_following(UID, target)
+def get_following_ids():                return _community.get_following_ids(UID)
+def follow_counts(uid=None):            return _community.follow_counts(uid if uid is not None else UID)
+def community_block(target):            return _community.block(UID, target)
+def community_unblock(target):          return _community.unblock(UID, target)
+def get_blocked_ids():                  return _community.get_blocked_ids(UID)
+def community_report(**k):              return _community.report(UID, **k)
+def create_post(body, ticker=None):     return _community.create_post(UID, body, ticker)
+def delete_post(post_id):               return _community.delete_post(UID, post_id)
+def get_ticker_posts(ticker, limit=60): return _community.get_ticker_posts(ticker, UID, limit)
+def get_feed(limit=50):                 return _community.get_feed(UID, limit)
+def get_recent_posts(limit=50):        return _community.get_recent_posts(UID, limit)
+def like_post(post_id):                 return _community.like_post(UID, post_id)
+def unlike_post(post_id):               return _community.unlike_post(UID, post_id)
+def publish_watchlist(name, tickers):   return _community.publish_watchlist(UID, name, tickers)
+def delete_shared_watchlist(list_id):   return _community.delete_shared_watchlist(UID, list_id)
+def get_shared_watchlists(limit=50):    return _community.get_shared_watchlists(UID, limit)
+
+def verified_return_pct(candidate_id):
+    """Average % return across a user's 'bought' decisions, priced live.
+    This is the leaderboard's verifiable metric — it comes from timestamped
+    decision logs, not self-reported numbers. Returns (avg_pct, n) or (None, 0)."""
+    rets = []
+    for d in _get_decisions(candidate_id):
+        if d.get("decision") != "bought":
+            continue
+        then = _safe_float(d.get("price"))
+        if then <= 0:
+            continue
+        info = fetch_ticker_info(d["symbol"])
+        now = _safe_float(info.get("currentPrice") or info.get("regularMarketPrice"))
+        if now > 0:
+            rets.append((now - then) / then * 100)
+    if not rets:
+        return None, 0
+    return sum(rets) / len(rets), len(rets)
 def backup_holdings():                  return _backup_holdings(UID)
 def restore_holdings(path):             return _restore_holdings(UID, path)
 def get_latest_run_suggestions():      return _get_latest_run_suggestions(UID)
@@ -572,11 +619,12 @@ def _sidebar_snapshot():
         "asof":         _asof,
     }
 
-PAGES = ["Dashboard", "Stock Advisor", "Scan & Alerts", "Lists & History", "How It Works", "Settings"]
+PAGES = ["Dashboard", "Stock Advisor", "Scan & Alerts", "Community", "Lists & History", "How It Works", "Settings"]
 PAGE_ICONS = {
     "Dashboard":      "◼",
     "Stock Advisor":  "🎯",
     "Scan & Alerts":  "🔭",
+    "Community":      "👥",
     "How It Works":   "📖",
     "Lists & History":"📋",
     "Settings":       "⚙️",
@@ -2616,6 +2664,261 @@ def _render_performance_section():
                              "To Target %": "{:+.1f}%"}, na_rep="—"),
                 width="stretch", height=400,
             )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# COMMUNITY
+# ══════════════════════════════════════════════════════════════════════════════
+if page == "Community":
+    st.markdown("# 👥 Community")
+    st.markdown("Follow other investors, compare verified track records, and talk tickers.")
+
+    st.markdown("""<div class="warn-banner">
+      ⚠️ <strong>Not investment advice.</strong> Everything here is opinion and self-directed
+      research from other members. Returns are computed from users' own logged picks and are
+      <em>not</em> audited. Never post account numbers or personal financial details.
+    </div><br>""", unsafe_allow_html=True)
+
+    _esc = lambda s: html.escape(str(s or ""))
+
+    def _fmt_when(iso):
+        return (iso or "")[:16].replace("T", " ")
+
+    _me_prof = get_profile()
+    if not _me_prof["is_public"]:
+        st.info("👋 Your profile is **private** — you can browse and post, but you won't appear "
+                "on the leaderboard or member list until you go public under **My Profile**.")
+
+    def _render_post(p, key_prefix):
+        _tkr = ""
+        if p.get("ticker"):
+            _tkr = (f'<span style="background:#eef2ff;color:#4f46e5;border-radius:99px;'
+                    f'padding:1px 8px;font-size:.72rem;font-weight:700;margin-left:.4rem">'
+                    f'${_esc(p["ticker"])}</span>')
+        _body = _esc(p["body"]).replace("\n", "<br>")
+        st.markdown(f"""<div class="metric-card" style="padding:.75rem 1rem;margin-bottom:.5rem">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <div><b>{_esc(p['avatar'])} {_esc(p['display_name'])}</b>{_tkr}</div>
+            <div style="color:#94a3b8;font-size:.72rem">{_fmt_when(p['created_at'])} UTC</div>
+          </div>
+          <div style="margin-top:.35rem;color:#334155;font-size:.9rem">{_body}</div>
+        </div>""", unsafe_allow_html=True)
+        _bcols = st.columns([1, 1, 1, 5])
+        with _bcols[0]:
+            _lbl = f"❤ {p['likes']}" if p["liked"] else f"🤍 {p['likes']}"
+            if st.button(_lbl, key=f"{key_prefix}_like_{p['id']}"):
+                (unlike_post if p["liked"] else like_post)(p["id"]); st.rerun()
+        if p["is_own"]:
+            with _bcols[1]:
+                if st.button("🗑", key=f"{key_prefix}_del_{p['id']}", help="Delete your post"):
+                    delete_post(p["id"]); st.rerun()
+        else:
+            with _bcols[1]:
+                if st.button("🚩", key=f"{key_prefix}_rep_{p['id']}", help="Report this post"):
+                    community_report(post_id=p["id"], reason="reported")
+                    st.toast("Reported to the moderators.")
+            with _bcols[2]:
+                if st.button("🚫", key=f"{key_prefix}_blk_{p['id']}",
+                             help=f"Block {p['display_name']}"):
+                    community_block(p["user_id"]); st.rerun()
+
+    _tab_feed, _tab_board, _tab_discuss, _tab_lists, _tab_profile = st.tabs(
+        ["🏠 Feed", "🏆 Leaderboard", "💬 Discuss", "📋 Shared Lists", "👤 My Profile"])
+
+    # ── Feed ────────────────────────────────────────────────────────────────
+    with _tab_feed:
+        with st.form("compose_post", clear_on_submit=True):
+            _pc1, _pc2 = st.columns([4, 1])
+            with _pc1:
+                _body_in = st.text_area("Share a thought", max_chars=_community.MAX_POST_LEN,
+                                        placeholder="What are you watching today?",
+                                        label_visibility="collapsed")
+            with _pc2:
+                _tkr_in = st.text_input("Ticker", placeholder="NVDA (optional)",
+                                        label_visibility="collapsed")
+            if st.form_submit_button("Post", type="primary"):
+                _res = create_post(_body_in, _tkr_in.strip() or None)
+                if "error" in _res:
+                    st.error(_res["error"])
+                else:
+                    st.rerun()
+
+        st.markdown('<div class="section-header">From people you follow</div>', unsafe_allow_html=True)
+        _feed = get_feed()
+        if not _feed:
+            st.caption("Nothing here yet — follow members on the Leaderboard, or post something above.")
+        for _p in _feed:
+            _render_post(_p, "feed")
+
+        st.markdown('<div class="section-header">Recent from everyone</div>', unsafe_allow_html=True)
+        _recent = get_recent_posts()
+        if not _recent:
+            st.caption("Be the first to post!")
+        for _p in _recent:
+            _render_post(_p, "recent")
+
+    # ── Leaderboard ─────────────────────────────────────────────────────────
+    with _tab_board:
+        st.caption("Ranked by average return across each member's **logged** buy calls — "
+                   "priced live from when they marked the pick. Only members who opted into "
+                   "sharing returns appear here.")
+        _cands = get_public_sharers()
+        _rows = []
+        with st.spinner("Scoring track records…"):
+            for _u in _cands:
+                _avg, _n = verified_return_pct(_u["user_id"])
+                if _n > 0:
+                    _rows.append((_u, _avg, _n))
+        _rows.sort(key=lambda x: x[1], reverse=True)
+        if not _rows:
+            st.info("No verified track records yet. Mark some suggestions as **Bought** on the "
+                    "Stock Advisor page and opt into sharing returns under **My Profile** to appear here.")
+        _following = get_following_ids()
+        for _rank, (_u, _avg, _n) in enumerate(_rows, 1):
+            _c1, _c2, _c3, _c4 = st.columns([0.6, 3, 1.4, 1.2])
+            _col = "#15803d" if _avg >= 0 else "#dc2626"
+            with _c1:
+                st.markdown(f"<div style='font-size:1.3rem;font-weight:800;color:#94a3b8'>#{_rank}</div>",
+                            unsafe_allow_html=True)
+            with _c2:
+                st.markdown(f"**{_esc(_u['avatar'])} {_esc(_u['display_name'])}**  \n"
+                            f"<small style='color:#64748b'>{_esc(_u.get('bio') or '')}</small>",
+                            unsafe_allow_html=True)
+            with _c3:
+                st.markdown(f"<div style='font-weight:800;color:{_col};font-size:1.1rem'>{_avg:+.1f}%</div>"
+                            f"<small style='color:#94a3b8'>{_n} pick(s)</small>", unsafe_allow_html=True)
+            with _c4:
+                if _u["user_id"] in _following:
+                    if st.button("Following", key=f"lb_unf_{_u['user_id']}"):
+                        unfollow(_u["user_id"]); st.rerun()
+                else:
+                    if st.button("Follow", key=f"lb_f_{_u['user_id']}", type="primary"):
+                        follow(_u["user_id"]); st.rerun()
+            st.divider()
+
+    # ── Discuss (ticker threads) ────────────────────────────────────────────
+    with _tab_discuss:
+        _disc_tkr = st.text_input("Ticker to discuss", value=st.session_state.get("discuss_ticker", ""),
+                                  placeholder="e.g. NVDA").strip().upper()
+        st.session_state["discuss_ticker"] = _disc_tkr
+        if _disc_tkr:
+            with st.form("thread_post", clear_on_submit=True):
+                _tbody = st.text_area(f"Post to the ${_disc_tkr} thread",
+                                      max_chars=_community.MAX_POST_LEN,
+                                      placeholder=f"Your take on {_disc_tkr}…")
+                if st.form_submit_button(f"Post to ${_disc_tkr}", type="primary"):
+                    _res = create_post(_tbody, _disc_tkr)
+                    if "error" in _res:
+                        st.error(_res["error"])
+                    else:
+                        st.rerun()
+            st.markdown(f'<div class="section-header">${_esc(_disc_tkr)} discussion</div>',
+                        unsafe_allow_html=True)
+            _thread = get_ticker_posts(_disc_tkr)
+            if not _thread:
+                st.caption("No posts yet — start the conversation above.")
+            for _p in _thread:
+                _render_post(_p, "thread")
+        else:
+            st.caption("Enter a ticker to see and join its discussion thread.")
+
+    # ── Shared Lists ────────────────────────────────────────────────────────
+    with _tab_lists:
+        st.markdown('<div class="section-header">Publish your watchlist</div>', unsafe_allow_html=True)
+        _my_wl = load_watchlist()
+        st.caption(f"Shares your current watchlist ({len(_my_wl)} tickers) — symbols and industries "
+                   "only, no holdings or dollar amounts.")
+        with st.form("publish_wl", clear_on_submit=True):
+            _wl_name = st.text_input("List name", placeholder="My AI & Semis picks",
+                                     max_chars=_community.MAX_WATCHLIST_NAME_LEN)
+            if st.form_submit_button("Publish", type="primary"):
+                _res = publish_watchlist(_wl_name, _my_wl)
+                if "error" in _res:
+                    st.error(_res["error"])
+                else:
+                    st.success("Published!"); st.rerun()
+
+        st.markdown('<div class="section-header">Browse shared lists</div>', unsafe_allow_html=True)
+        _shared = get_shared_watchlists()
+        if not _shared:
+            st.caption("No shared lists yet — publish yours above.")
+        for _sl in _shared:
+            _syms = [t.get("symbol", "") for t in _sl["tickers"] if isinstance(t, dict)]
+            _chips = " ".join(f"<code>{_esc(s)}</code>" for s in _syms[:12])
+            st.markdown(f"""<div class="metric-card" style="padding:.8rem 1rem;margin-bottom:.4rem">
+              <div style="display:flex;justify-content:space-between">
+                <b>{_esc(_sl['name'])}</b>
+                <span style="color:#94a3b8;font-size:.72rem">{_esc(_sl['avatar'])} {_esc(_sl['display_name'])} · {len(_syms)} tickers</span>
+              </div>
+              <div style="margin-top:.35rem;font-size:.8rem">{_chips}</div>
+            </div>""", unsafe_allow_html=True)
+            _lc1, _lc2, _lc3 = st.columns([1.2, 1, 5])
+            with _lc1:
+                if st.button("➕ Clone to my watchlist", key=f"clone_{_sl['id']}"):
+                    _cur = load_watchlist()
+                    _have = {t["symbol"] for t in _cur}
+                    _added = 0
+                    for _t in _sl["tickers"]:
+                        if isinstance(_t, dict) and _t.get("symbol") and _t["symbol"] not in _have:
+                            _cur.append({"symbol": _t["symbol"], "industry": _t.get("industry", "Misc")})
+                            _have.add(_t["symbol"]); _added += 1
+                    save_watchlist(_cur)
+                    st.success(f"Added {_added} new ticker(s) to your watchlist.")
+            if _sl["is_own"]:
+                with _lc2:
+                    if st.button("🗑 Delete", key=f"dellist_{_sl['id']}"):
+                        delete_shared_watchlist(_sl["id"]); st.rerun()
+
+    # ── My Profile ──────────────────────────────────────────────────────────
+    with _tab_profile:
+        _counts = follow_counts()
+        st.markdown(f"### {_esc(_me_prof['avatar'])} {_esc(_me_prof['display_name'])}")
+        st.caption(f"**{_counts['followers']}** followers · **{_counts['following']}** following")
+        with st.form("edit_profile"):
+            _bio = st.text_area("Bio", value=_me_prof.get("bio") or "",
+                                max_chars=_community.MAX_BIO_LEN,
+                                placeholder="A line about your investing style…")
+            _av = st.text_input("Avatar emoji", value=_me_prof["avatar"], max_chars=8)
+            _pub = st.checkbox("Public profile — appear in the member list & be followable",
+                               value=_me_prof["is_public"])
+            _sr = st.checkbox("Share my track record — show my verified returns on the leaderboard",
+                              value=_me_prof["share_returns"])
+            if st.form_submit_button("Save profile", type="primary"):
+                update_profile(bio=_bio, avatar=_av, is_public=_pub, share_returns=_sr)
+                st.success("Profile saved."); st.rerun()
+
+        st.markdown('<div class="section-header">Members</div>', unsafe_allow_html=True)
+        _dir = get_public_profiles()
+        _following = get_following_ids()
+        if not _dir:
+            st.caption("No public members yet.")
+        for _m in _dir:
+            if _m["user_id"] == UID:
+                continue
+            _m1, _m2 = st.columns([4, 1])
+            with _m1:
+                st.markdown(f"**{_esc(_m['avatar'])} {_esc(_m['display_name'])}**  \n"
+                            f"<small style='color:#64748b'>{_esc(_m.get('bio') or '')}</small>",
+                            unsafe_allow_html=True)
+            with _m2:
+                if _m["user_id"] in _following:
+                    if st.button("Following", key=f"dir_unf_{_m['user_id']}"):
+                        unfollow(_m["user_id"]); st.rerun()
+                else:
+                    if st.button("Follow", key=f"dir_f_{_m['user_id']}", type="primary"):
+                        follow(_m["user_id"]); st.rerun()
+
+        _blocked = get_blocked_ids()
+        if _blocked:
+            st.markdown('<div class="section-header">Blocked</div>', unsafe_allow_html=True)
+            for _bid in _blocked:
+                _bp = get_profile(_bid)
+                _b1, _b2 = st.columns([4, 1])
+                with _b1:
+                    st.markdown(f"{_esc(_bp['avatar'])} {_esc(_bp['display_name'])}")
+                with _b2:
+                    if st.button("Unblock", key=f"unblk_{_bid}"):
+                        community_unblock(_bid); st.rerun()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
