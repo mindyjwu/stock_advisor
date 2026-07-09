@@ -2,10 +2,13 @@
 SQLite memory layer. All tables are scoped per user account.
 
 Tables:
-  suggestions  — every scored suggestion with date, scores, action, prices
-  saved_picks  — user-saved stocks, tagged by industry list
-  alerts       — fired alert log (deduped per user)
-  scans        — persisted market scans (last 5 per user)
+  suggestions         — every scored suggestion with date, scores, action, prices
+  saved_picks         — user-saved stocks, tagged by industry list
+  alerts              — fired alert log (deduped per user)
+  scans               — persisted market scans (last 5 per user)
+  portfolio_snapshots — daily portfolio value/G-L point, for the equity curve
+  decisions           — what the user actually did with a pick (bought / passed)
+  imports             — audit log of CSV/PDF holdings imports (with undo backup)
 
 Databases created before accounts existed are migrated in place: a user_id
 column is added and pre-account rows are claimed by the owner at first signup
@@ -122,6 +125,44 @@ def init_db():
             regime  TEXT,
             full    TEXT,
             pass1   TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS portfolio_snapshots (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id      INTEGER,
+            snap_date    TEXT NOT NULL,   -- YYYY-MM-DD (UTC); one row per day
+            snap_at      TEXT NOT NULL,   -- full ISO timestamp of the latest write
+            total_value  REAL,
+            equity_value REAL,
+            cash         REAL,
+            total_cost   REAL,
+            total_gl     REAL,
+            n_positions  INTEGER,
+            UNIQUE(user_id, snap_date)
+        );
+
+        CREATE TABLE IF NOT EXISTS decisions (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id    INTEGER,
+            symbol     TEXT NOT NULL,
+            decision   TEXT NOT NULL,     -- 'bought' | 'passed'
+            action     TEXT,              -- AI verdict at decision time
+            price      REAL,              -- price when the call was made
+            score      REAL,
+            decided_at TEXT NOT NULL,
+            UNIQUE(user_id, symbol)
+        );
+
+        CREATE TABLE IF NOT EXISTS imports (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id     INTEGER,
+            imported_at TEXT NOT NULL,
+            source      TEXT,             -- 'CSV' | 'PDF'
+            filename    TEXT,
+            n_positions INTEGER,
+            cash        REAL,
+            mode        TEXT,             -- 'replace' | 'merge'
+            backup_path TEXT              -- prior holdings copy, for undo
         );
         """)
         _migrate_schema(con)
@@ -286,3 +327,96 @@ def get_suggestion_history(user_id: int, symbol: Optional[str] = None, limit: in
             d["reasons"] = json.loads(d["reasons"]) if d["reasons"] else []
             result.append(d)
         return result
+
+
+# ── Portfolio snapshots (equity curve) ──────────────────────────────────────
+def record_portfolio_snapshot(user_id: int, total_value: float, equity_value: float,
+                              cash: float, total_cost: float, total_gl: float,
+                              n_positions: int):
+    """Store one portfolio value point. Upserts per UTC day so the equity curve
+    has a single, latest point per day no matter how often it's called."""
+    now = datetime.utcnow()
+    with _conn() as con:
+        con.execute("""
+        INSERT INTO portfolio_snapshots
+          (user_id, snap_date, snap_at, total_value, equity_value, cash,
+           total_cost, total_gl, n_positions)
+        VALUES (?,?,?,?,?,?,?,?,?)
+        ON CONFLICT(user_id, snap_date) DO UPDATE SET
+          snap_at=excluded.snap_at, total_value=excluded.total_value,
+          equity_value=excluded.equity_value, cash=excluded.cash,
+          total_cost=excluded.total_cost, total_gl=excluded.total_gl,
+          n_positions=excluded.n_positions
+        """, (user_id, now.strftime("%Y-%m-%d"), now.isoformat(),
+              total_value, equity_value, cash, total_cost, total_gl, n_positions))
+
+
+def get_portfolio_snapshots(user_id: int, limit: int = 365) -> list[dict]:
+    """Daily snapshots oldest-first, ready to plot as an equity curve."""
+    with _conn() as con:
+        rows = con.execute("""
+            SELECT * FROM portfolio_snapshots WHERE user_id=?
+            ORDER BY snap_date DESC LIMIT ?
+        """, (user_id, limit)).fetchall()
+        return [dict(r) for r in reversed(rows)]
+
+
+# ── Decisions (what the user actually did) ──────────────────────────────────
+def record_decision(user_id: int, symbol: str, decision: str, action: str = None,
+                    price: float = None, score: float = None):
+    """Record 'bought' or 'passed' for a symbol. One decision per symbol per
+    user — re-recording overwrites the previous one."""
+    with _conn() as con:
+        con.execute("""
+        INSERT INTO decisions (user_id, symbol, decision, action, price, score, decided_at)
+        VALUES (?,?,?,?,?,?,?)
+        ON CONFLICT(user_id, symbol) DO UPDATE SET
+          decision=excluded.decision, action=excluded.action,
+          price=excluded.price, score=excluded.score, decided_at=excluded.decided_at
+        """, (user_id, symbol.upper(), decision, action, price, score,
+              datetime.utcnow().isoformat()))
+
+
+def remove_decision(user_id: int, symbol: str):
+    with _conn() as con:
+        con.execute("DELETE FROM decisions WHERE user_id=? AND symbol=?",
+                    (user_id, symbol.upper()))
+
+
+def get_decisions(user_id: int) -> list[dict]:
+    with _conn() as con:
+        rows = con.execute(
+            "SELECT * FROM decisions WHERE user_id=? ORDER BY decided_at DESC", (user_id,)
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_decision_map(user_id: int) -> dict:
+    """{symbol: 'bought'|'passed'} for quick lookup when rendering cards."""
+    return {d["symbol"]: d["decision"] for d in get_decisions(user_id)}
+
+
+# ── Import audit log ────────────────────────────────────────────────────────
+def log_import(user_id: int, source: str, filename: str, n_positions: int,
+               cash: float, mode: str, backup_path: str = None):
+    with _conn() as con:
+        con.execute("""
+        INSERT INTO imports
+          (user_id, imported_at, source, filename, n_positions, cash, mode, backup_path)
+        VALUES (?,?,?,?,?,?,?,?)
+        """, (user_id, datetime.utcnow().isoformat(), source, filename,
+              n_positions, cash, mode, backup_path))
+
+
+def get_imports(user_id: int, limit: int = 20) -> list[dict]:
+    with _conn() as con:
+        rows = con.execute(
+            "SELECT * FROM imports WHERE user_id=? ORDER BY imported_at DESC LIMIT ?",
+            (user_id, limit)
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_last_import(user_id: int) -> Optional[dict]:
+    rows = get_imports(user_id, limit=1)
+    return rows[0] if rows else None

@@ -239,6 +239,6 @@ and real-time interaction. The clean migration path:
 | Phase | Scope |
 |---|---|
 | **1. Hygiene** | Fix `.env` overwrite (merge + immediate activation); un-track `watchlist.json` (seed from `watchlist.example.json`, included here); safe fallbacks for missing data files; accessibility pass (WCAG AA contrast, 0.75rem font floor, `:focus-visible` outlines, `prefers-reduced-motion`); extract hardcoded config to `app/config.py` (included here — not yet wired into `main`'s dashboard). *Note: `main` already addressed parts of this in its own loader/dashboard rewrite; remaining items (accessibility on the new design, wiring `config.py`) are good follow-ups.* |
-| **2. Foundation** | ⏳ **partially on `main`** — login (`app/auth.py`) and per-user data folders exist. Remaining: Postgres migration, portfolio snapshots + decisions tables, import audit log. |
+| **2. Foundation** | Login (`app/auth.py`) and per-user data folders exist. ✅ Added: **portfolio snapshots** (daily equity curve on the Performance page), **decisions** (Bought/Passed tracking → "your actual results"), and an **import audit log** with one-click undo (versioned holdings backup). ⏳ Remaining: **Postgres migration** — deferred as a deploy-time task (needs a provisioned Postgres instance; SQLite is fine for now). |
 | **3. Community MVP** | Profiles, opt-in sharing, shared watchlists, leaderboard, ticker threads — all inside Streamlit. |
 | **4. Scale-out (if warranted)** | FastAPI backend + Next.js frontend; Streamlit stays as the analysis engine UI. |

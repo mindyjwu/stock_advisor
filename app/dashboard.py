@@ -19,6 +19,7 @@ from data.loader import (
     save_watchlist as _save_watchlist, save_holdings as _save_holdings,
     load_user_settings as _load_user_settings, save_user_settings as _save_user_settings,
     live_positions as _live_positions,
+    backup_holdings as _backup_holdings, restore_holdings as _restore_holdings,
 )
 from db.store import (
     init_db,
@@ -28,6 +29,12 @@ from db.store import (
     get_performance_snapshot as _get_performance_snapshot,
     get_latest_run_suggestions as _get_latest_run_suggestions,
     get_last_scan as _get_last_scan, log_alert as _log_alert,
+    record_portfolio_snapshot as _record_portfolio_snapshot,
+    get_portfolio_snapshots as _get_portfolio_snapshots,
+    record_decision as _record_decision, remove_decision as _remove_decision,
+    get_decisions as _get_decisions, get_decision_map as _get_decision_map,
+    log_import as _log_import, get_imports as _get_imports,
+    get_last_import as _get_last_import,
 )
 from agents.screener import STYLE_META
 from scripts.run_analysis import run_analysis as _run_analysis
@@ -266,6 +273,17 @@ def remove_pick(symbol):               return _remove_pick(UID, symbol)
 def get_suggestion_history(*a, **k):   return _get_suggestion_history(UID, *a, **k)
 def get_recent_alerts(limit=50):       return _get_recent_alerts(UID, limit)
 def get_performance_snapshot():        return _get_performance_snapshot(UID)
+def record_portfolio_snapshot(**k):    return _record_portfolio_snapshot(UID, **k)
+def get_portfolio_snapshots(limit=365):return _get_portfolio_snapshots(UID, limit)
+def record_decision(symbol, decision, **k): return _record_decision(UID, symbol, decision, **k)
+def remove_decision(symbol):           return _remove_decision(UID, symbol)
+def get_decisions():                   return _get_decisions(UID)
+def get_decision_map():                return _get_decision_map(UID)
+def log_import(**k):                    return _log_import(UID, **k)
+def get_imports(limit=20):             return _get_imports(UID, limit)
+def get_last_import():                  return _get_last_import(UID)
+def backup_holdings():                  return _backup_holdings(UID)
+def restore_holdings(path):             return _restore_holdings(UID, path)
 def get_latest_run_suggestions():      return _get_latest_run_suggestions(UID)
 def get_last_scan():                   return _get_last_scan(UID)
 def run_analysis(status_cb=None, **k): return _run_analysis(UID, status_cb=status_cb, **k)
@@ -543,6 +561,7 @@ def _sidebar_snapshot():
         "total_val":    _s(total_val),
         "equity_val":   _s(equity_val),
         "cash":         _s(cash),
+        "total_cost":   _s(total_cost),
         "total_gl":     _s(total_gl),
         "total_gl_pct": _s(total_gl_pct),
         "day_gl":       _s(day_gl),
@@ -809,6 +828,17 @@ if page == "Dashboard":  # ── includes Portfolio ──
 
     # KPI strip — all about YOUR money (recommendations live in 🎯 Stock Advisor)
     _snap_kpi = _sidebar_snapshot()
+    # Checkpoint today's portfolio value for the equity curve (upserts per day,
+    # so viewing the dashboard repeatedly just refreshes today's point).
+    if _snap_kpi["has_rich"] and _snap_kpi["total_val"] > 0:
+        try:
+            record_portfolio_snapshot(
+                total_value=_snap_kpi["total_val"], equity_value=_snap_kpi["equity_val"],
+                cash=_snap_kpi["cash"], total_cost=_snap_kpi["total_cost"],
+                total_gl=_snap_kpi["total_gl"], n_positions=_snap_kpi["n_positions"],
+            )
+        except Exception:
+            pass
     _held_syms_dash = {p["symbol"] for p in load_live_holdings()[0].get("positions", [])}
     col1, col2, col3, col4 = st.columns(4)
     _day_col = "#16a34a" if _snap_kpi["day_gl"] >= 0 else "#dc2626"
@@ -867,8 +897,8 @@ if page == "Dashboard":  # ── includes Portfolio ──
                 return ""
         st.dataframe(
             _rec_df.style
-                .applymap(_color_action, subset=["Verdict"])
-                .applymap(_color_upside, subset=["Possible gain"])
+                .map(_color_action, subset=["Verdict"])
+                .map(_color_upside, subset=["Possible gain"])
                 .format({"Score /100": "{:.0f}", "Price now": "${:.2f}", "Could reach": "${:.2f}",
                          "Possible gain": "{:+.1f}%"}, na_rep="—"),
             width="stretch",
@@ -1065,7 +1095,7 @@ if page == "Dashboard":  # ── includes Portfolio ──
                 return "color:#16a34a;font-weight:600" if v > 0 else "color:#ef4444;font-weight:600"
             st.dataframe(
                 _ddf.style
-                    .applymap(_gc, subset=["G/L $","G/L %","Day %"])
+                    .map(_gc, subset=["G/L $","G/L %","Day %"])
                     .format({"Qty":"{:g}","Price":"${:,.2f}","Value":"${:,.0f}",
                              "G/L $":"${:+,.0f}","G/L %":"{:+.1f}%","Day %":"{:+.2f}%"}, na_rep="—"),
                 width="stretch", height=min(350, 60 + len(matched)*38),
@@ -1353,7 +1383,7 @@ if page == "Dashboard":  # ── includes Portfolio ──
             "G/L (%)": "{:+.1f}%",
             "Day (%)": "{:+.2f}%",
         })
-        .applymap(_color_val, subset=["G/L ($)","G/L (%)","Day (%)"])
+        .map(_color_val, subset=["G/L ($)","G/L (%)","Day (%)"])
         .set_properties(**{"font-size": "12px"})
     )
     st.dataframe(styled, width="stretch", height=500)
@@ -1443,6 +1473,7 @@ elif page == "Stock Advisor":
         st.info("Slim pickings — your watchlist is mostly stocks you already own. "
                 "Run a 🔭 Market Scan and its discoveries will appear here automatically.")
     saved_symbols_sa = {p["symbol"] for p in get_saved_picks()}
+    _dec_map_sa = get_decision_map()
 
     try:
         from agents.blurbs import get_blurbs
@@ -1505,6 +1536,28 @@ elif page == "Stock Advisor":
                     remove_pick(r["symbol"])
                 else:
                     save_pick(r["symbol"], r.get("industry", "Misc"))
+                st.rerun()
+            # Track what you actually did — feeds the Performance page
+            _dec_sa = _dec_map_sa.get(r["symbol"])
+            if st.button("✅ Bought" if _dec_sa == "bought" else "Bought",
+                         key=f"sa_bought_{r['symbol']}",
+                         help="Mark that you bought this — tracks your real results"):
+                if _dec_sa == "bought":
+                    remove_decision(r["symbol"])
+                else:
+                    record_decision(r["symbol"], "bought", action=r.get("action"),
+                                    price=_safe_float(r.get("current_price")),
+                                    score=_safe_float(r.get("score")))
+                st.rerun()
+            if st.button("🚫 Passed" if _dec_sa == "passed" else "Passed",
+                         key=f"sa_passed_{r['symbol']}",
+                         help="Mark that you skipped this one"):
+                if _dec_sa == "passed":
+                    remove_decision(r["symbol"])
+                else:
+                    record_decision(r["symbol"], "passed", action=r.get("action"),
+                                    price=_safe_float(r.get("current_price")),
+                                    score=_safe_float(r.get("score")))
                 st.rerun()
 
         _blurb_row = _blurbs_sa.get(r["symbol"])
@@ -2336,7 +2389,7 @@ elif page == "Lists & History":
                         "Watch":"background-color:#fef9c3;color:#854d0e",
                         "Avoid":"background-color:#fee2e2;color:#991b1b"}.get(val,"")
 
-            st.dataframe(df_h.style.applymap(_color_action, subset=["Action"]),
+            st.dataframe(df_h.style.map(_color_action, subset=["Action"]),
                          width="stretch", height=420)
             if sym_filter and len(df_h) > 1:
                 st.markdown(f'<div class="section-header">Score trend — {sym_filter}</div>', unsafe_allow_html=True)
@@ -2353,6 +2406,89 @@ elif page == "Lists & History":
 # ══════════════════════════════════════════════════════════════════════════════
 def _render_performance_section():
     st.markdown("---")
+
+    # ── Your portfolio over time (equity curve) ──────────────────────────────
+    _snaps = get_portfolio_snapshots()
+    st.markdown('<div class="section-header">📈 Your Portfolio Over Time</div>', unsafe_allow_html=True)
+    if len(_snaps) >= 2:
+        _df_eq = pd.DataFrame(_snaps)
+        _first_v = _safe_float(_snaps[0]["total_value"])
+        _last_v  = _safe_float(_snaps[-1]["total_value"])
+        _chg     = _last_v - _first_v
+        _chg_pct = (_chg / _first_v * 100) if _first_v else 0.0
+        _eq_col  = "#15803d" if _chg >= 0 else "#dc2626"
+        st.caption(f"Tracked across {len(_snaps)} day(s) — "
+                   f"{'up' if _chg >= 0 else 'down'} ${abs(_chg):,.0f} ({_chg_pct:+.1f}%) since tracking began. "
+                   "A point is saved each day you open the dashboard.")
+        _fig_eq = go.Figure(go.Scatter(
+            x=_df_eq["snap_date"], y=_df_eq["total_value"],
+            mode="lines+markers", line=dict(color="#6366f1", width=2.5),
+            fill="tozeroy", fillcolor="rgba(99,102,241,.08)",
+            marker=dict(size=5),
+            hovertemplate="<b>%{x}</b><br>Value: $%{y:,.0f}<extra></extra>",
+        ))
+        _fig_eq.update_layout(
+            height=300, margin=dict(l=10, r=10, t=10, b=30),
+            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+            font=dict(family="Inter", size=11),
+            xaxis=dict(showgrid=False),
+            yaxis=dict(tickprefix="$", tickformat=",.0f", gridcolor="#eef1f7",
+                       rangemode="tozero"),
+        )
+        st.plotly_chart(_fig_eq, use_container_width=True, config={"displayModeBar": False})
+        with st.expander("View as table"):
+            _eq_tbl = _df_eq[["snap_date", "total_value", "equity_value", "cash", "total_gl", "n_positions"]].copy()
+            _eq_tbl.columns = ["Date", "Total Value", "Equities", "Cash", "Unrealized G/L", "Positions"]
+            st.dataframe(
+                _eq_tbl.iloc[::-1].style.format({
+                    "Total Value": "${:,.0f}", "Equities": "${:,.0f}", "Cash": "${:,.0f}",
+                    "Unrealized G/L": "${:+,.0f}"}, na_rep="—"),
+                use_container_width=True, height=min(320, 60 + len(_eq_tbl) * 36),
+            )
+    elif len(_snaps) == 1:
+        st.caption("Your first portfolio value is saved — the equity curve appears once there "
+                   "are at least two days of data. Check back tomorrow.")
+    else:
+        st.caption("Import your holdings, then open the dashboard — each visit saves a daily "
+                   "portfolio value point that builds this equity curve.")
+
+    # ── What you actually did (decisions) ────────────────────────────────────
+    _decs = get_decisions()
+    if _decs:
+        st.markdown('<div class="section-header">🧭 Your Decisions</div>', unsafe_allow_html=True)
+        _n_bought = sum(1 for d in _decs if d["decision"] == "bought")
+        _n_passed = sum(1 for d in _decs if d["decision"] == "passed")
+        st.caption(f"You've marked {_n_bought} **bought** and {_n_passed} **passed**. "
+                   "Returns are measured from the price when you made the call.")
+        _dec_rows = []
+        for d in _decs:
+            _now_p = _safe_float(fetch_ticker_info(d["symbol"]).get("currentPrice")
+                                 or fetch_ticker_info(d["symbol"]).get("regularMarketPrice"))
+            _then = _safe_float(d.get("price"))
+            _ret = round((_now_p - _then) / _then * 100, 1) if _then and _now_p else None
+            _dec_rows.append({
+                "Symbol": d["symbol"],
+                "Decision": "✅ Bought" if d["decision"] == "bought" else "🚫 Passed",
+                "When": (d["decided_at"] or "")[:10],
+                "Verdict": d.get("action") or "—",
+                "Price then": _then or None,
+                "Price now": _now_p or None,
+                "Since": _ret,
+            })
+        _dec_df = pd.DataFrame(_dec_rows)
+        def _dec_ret_style(v):
+            if v is None or (isinstance(v, float) and math.isnan(v)):
+                return ""
+            return f"color:{POS_COLOR};font-weight:600" if v > 0 else f"color:{NEG_COLOR};font-weight:600"
+        st.dataframe(
+            _dec_df.style
+                .map(_dec_ret_style, subset=["Since"])
+                .format({"Price then": "${:,.2f}", "Price now": "${:,.2f}", "Since": "{:+.1f}%"}, na_rep="—"),
+            use_container_width=True, height=min(360, 60 + len(_dec_rows) * 36),
+        )
+        st.caption("For **passed** picks, a positive number is gains you skipped; a negative "
+                   "one is a loss you dodged.")
+
     st.markdown('<div class="section-header">📊 How Past Suggestions Performed</div>', unsafe_allow_html=True)
     st.caption("The honest report card — pick a time window and see how every AI call actually did afterwards.")
 
@@ -2474,7 +2610,7 @@ def _render_performance_section():
             _show_cols = ["Symbol","Action","Suggested","Window","Entry $","Now $","Return %","Target $","To Target %"]
             st.dataframe(
                 df_perf[_show_cols].style
-                    .applymap(_ret_style, subset=["Return %", "To Target %"])
+                    .map(_ret_style, subset=["Return %", "To Target %"])
                     .format({"Entry $": "${:.2f}", "Now $": "${:.2f}",
                              "Target $": "${:.2f}", "Return %": "{:+.1f}%",
                              "To Target %": "{:+.1f}%"}, na_rep="—"),
@@ -2719,6 +2855,7 @@ elif page == "Settings":
                     pdf_overwrite   = st.checkbox("Replace all existing positions", value=True, key="pdf_ow_chk")
 
                 if st.button("✅  Import PDF holdings", type="primary", key="pdf_import_btn"):
+                    _bkp = backup_holdings()   # snapshot current holdings for undo
                     h = load_holdings()
                     if pdf_overwrite:
                         h["positions"] = positions
@@ -2730,6 +2867,10 @@ elif page == "Settings":
                     if pdf_import_cash and cash_val:
                         h["cash"] = cash_val
                     save_holdings(h)
+                    log_import(source="PDF", filename=getattr(pdf_file, "name", "statement.pdf"),
+                               n_positions=len(positions),
+                               cash=(cash_val if pdf_import_cash and cash_val else 0),
+                               mode=("replace" if pdf_overwrite else "merge"), backup_path=_bkp)
                     st.success(
                         f"Imported {len(positions)} position(s)"
                         + (f" + ${cash_val:,.0f} cash" if pdf_import_cash and cash_val else "") + "."
@@ -2879,6 +3020,7 @@ elif page == "Settings":
                 with ci3: add_to_wl     = st.checkbox("Also add tickers to watchlist", value=True, key="csv_wl_chk")
 
                 if st.button("✅  Import into Stock Advisor", type="primary", key="csv_import_btn"):
+                    _bkp = backup_holdings()   # snapshot current holdings for undo
                     h = load_holdings()
                     if overwrite:
                         h["positions"] = positions
@@ -2889,6 +3031,10 @@ elif page == "Settings":
                     if import_cash and csv_cash:
                         h["cash"] = csv_cash
                     save_holdings(h)
+                    log_import(source="CSV", filename=getattr(uploaded, "name", "positions.csv"),
+                               n_positions=len(positions),
+                               cash=(csv_cash if import_cash and csv_cash else 0),
+                               mode=("replace" if overwrite else "merge"), backup_path=_bkp)
 
                     wl_added = 0
                     if add_to_wl:
@@ -2913,6 +3059,33 @@ elif page == "Settings":
             except Exception as e:
                 st.error(f"Could not parse CSV: {e}")
                 st.caption("Make sure it's the positions CSV from J.P. Morgan Self-Directed.")
+
+    # ── Import history + undo ─────────────────────────────────────────────────
+    _imports = get_imports(limit=10)
+    if _imports:
+        st.markdown("#### 🧾 Recent imports")
+        _last_imp = _imports[0]
+        if _last_imp.get("backup_path"):
+            _lc1, _lc2 = st.columns([3, 1])
+            with _lc1:
+                st.caption(f"Last import: **{_last_imp['n_positions']}** position(s) from "
+                           f"{_last_imp['source']} ({_last_imp['mode']}) on "
+                           f"{(_last_imp['imported_at'] or '')[:16].replace('T',' ')} UTC. "
+                           "Undo restores the holdings you had just before it.")
+            with _lc2:
+                if st.button("↩️ Undo last import", key="undo_import_btn"):
+                    if restore_holdings(_last_imp["backup_path"]):
+                        st.success("Holdings restored to the pre-import snapshot.")
+                        st.rerun()
+                    else:
+                        st.error("Backup file is no longer available — can't undo.")
+        _imp_df = pd.DataFrame(_imports)[["imported_at", "source", "filename", "n_positions", "cash", "mode"]].copy()
+        _imp_df["imported_at"] = _imp_df["imported_at"].str[:16].str.replace("T", " ")
+        _imp_df.columns = ["When (UTC)", "Source", "File", "Positions", "Cash", "Mode"]
+        st.dataframe(
+            _imp_df.style.format({"Cash": "${:,.0f}"}, na_rep="—"),
+            use_container_width=True, height=min(280, 60 + len(_imp_df) * 36),
+        )
 
     st.markdown("---")
 
