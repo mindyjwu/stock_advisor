@@ -1,0 +1,4 @@
+# API server — install alongside the project's root requirements.txt
+fastapi>=0.115
+uvicorn[standard]>=0.30
+# psycopg[binary] is already in the root requirements (only needed for Postgres)

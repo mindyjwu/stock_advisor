@@ -27,5 +27,13 @@ alerts.log
 # macOS
 .DS_Store
 
+# Node / Next.js frontend (web/)
+node_modules/
+web/.next/
+web/out/
+web/.env.local
+web/next-env.d.ts
+*.tsbuildinfo
+
 # Claude Code
 .claude/
