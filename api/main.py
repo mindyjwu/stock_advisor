@@ -96,6 +96,12 @@ class PublishIn(BaseModel):
     name: str
 
 
+class ReportIn(BaseModel):
+    target_user_id: Optional[int] = None
+    post_id: Optional[int] = None
+    reason: str = ""
+
+
 def _auth_response(user: dict) -> dict:
     return {"token": issue_token(user["id"]), "user": user}
 
@@ -233,6 +239,34 @@ def follow(target_id: int, user: dict = Depends(get_current_user)):
 @app.delete("/api/community/follow/{target_id}")
 def unfollow(target_id: int, user: dict = Depends(get_current_user)):
     community.unfollow(user["id"], target_id)
+    return {"ok": True}
+
+
+# ── Moderation ──────────────────────────────────────────────────────────────
+@app.post("/api/community/block/{target_id}")
+def block_user(target_id: int, user: dict = Depends(get_current_user)):
+    community.block(user["id"], target_id)
+    return {"ok": True}
+
+
+@app.delete("/api/community/block/{target_id}")
+def unblock_user(target_id: int, user: dict = Depends(get_current_user)):
+    community.unblock(user["id"], target_id)
+    return {"ok": True}
+
+
+@app.get("/api/community/blocked")
+def blocked_users(user: dict = Depends(get_current_user)):
+    out = []
+    for bid in community.get_blocked_ids(user["id"]):
+        p = community.get_profile(bid)
+        out.append({"user_id": bid, "display_name": p["display_name"], "avatar": p["avatar"]})
+    return out
+
+
+@app.post("/api/community/report")
+def report_content(body: ReportIn, user: dict = Depends(get_current_user)):
+    community.report(user["id"], body.target_user_id, body.post_id, body.reason)
     return {"ok": True}
 
 

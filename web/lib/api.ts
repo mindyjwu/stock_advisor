@@ -85,6 +85,55 @@ export interface ProfileUpdate {
   is_public: boolean;
   share_returns: boolean;
 }
+export interface BlockedUser {
+  user_id: number;
+  display_name: string;
+  avatar: string;
+}
+export interface WatchItem {
+  symbol: string;
+  industry?: string;
+}
+export interface Position {
+  symbol: string;
+  description?: string;
+  quantity?: number;
+  cost_basis?: number;
+  current_price?: number | null;
+  current_value?: number | null;
+  unrealized_gl?: number | null;
+  unrealized_gl_pct?: number | null;
+  sector?: string;
+}
+export interface Holdings {
+  cash: number;
+  positions: Position[];
+}
+export interface Suggestion {
+  symbol: string;
+  action: string;
+  score: number;
+  current_price: number;
+  target_price: number;
+  upside_pct: number;
+  suggested_quantity: number;
+}
+export interface Snapshot {
+  snap_date: string;
+  total_value: number;
+  equity_value: number;
+  cash: number;
+  total_gl: number;
+  n_positions: number;
+}
+export interface Decision {
+  symbol: string;
+  decision: string;
+  action: string | null;
+  price: number | null;
+  score: number | null;
+  decided_at: string;
+}
 
 async function req<T>(path: string, opts: RequestInit = {}): Promise<T> {
   const headers: Record<string, string> = {
@@ -144,4 +193,18 @@ export const api = {
     req<{ added: number }>(`/api/community/watchlists/${id}/clone`, { method: "POST" }),
   deleteList: (id: number) =>
     req<{ ok: boolean }>(`/api/community/watchlists/${id}`, { method: "DELETE" }),
+
+  // Moderation
+  block: (id: number) => req<{ ok: boolean }>(`/api/community/block/${id}`, { method: "POST" }),
+  unblock: (id: number) => req<{ ok: boolean }>(`/api/community/block/${id}`, { method: "DELETE" }),
+  blocked: () => req<BlockedUser[]>("/api/community/blocked"),
+  report: (b: { target_user_id?: number; post_id?: number; reason?: string }) =>
+    req<{ ok: boolean }>("/api/community/report", { method: "POST", body: JSON.stringify(b) }),
+
+  // Personal portfolio data
+  watchlist: () => req<WatchItem[]>("/api/watchlist"),
+  holdings: () => req<Holdings>("/api/holdings"),
+  suggestions: () => req<Suggestion[]>("/api/suggestions"),
+  snapshots: () => req<Snapshot[]>("/api/performance/snapshots"),
+  decisions: () => req<Decision[]>("/api/decisions"),
 };

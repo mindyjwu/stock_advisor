@@ -11,33 +11,7 @@ import {
   type LeaderRow,
 } from "@/lib/api";
 import Nav from "@/app/components/Nav";
-
-function timeAgo(iso: string): string {
-  return (iso || "").slice(0, 16).replace("T", " ") + " UTC";
-}
-
-function PostCard({ post, onChange }: { post: Post; onChange: () => void }) {
-  async function toggleLike() {
-    if (post.liked) await api.unlike(post.id);
-    else await api.like(post.id);
-    onChange();
-  }
-  return (
-    <div className="card">
-      <div className="row">
-        <strong>
-          {post.avatar} {post.display_name}
-        </strong>
-        {post.ticker && <span className="chip">${post.ticker}</span>}
-        <span className="right muted">{timeAgo(post.created_at)}</span>
-      </div>
-      <div style={{ margin: "0.4rem 0 0.6rem", whiteSpace: "pre-wrap" }}>{post.body}</div>
-      <button onClick={toggleLike}>
-        {post.liked ? "❤" : "🤍"} {post.likes}
-      </button>
-    </div>
-  );
-}
+import PostCard from "@/app/components/PostCard";
 
 export default function Home() {
   const router = useRouter();

@@ -30,15 +30,18 @@ npm run build && npm start
 - `app/discuss` — per-ticker discussion threads: open a ticker, read, and post.
 - `app/lists` — browse shared watchlists, publish your own, clone others' into
   your watchlist, delete your own.
-- `app/profile` — edit bio/avatar and the two privacy opt-ins, see your
-  follower/following counts, and a member directory with follow buttons.
+- `app/profile` — edit bio/avatar and the two privacy opt-ins, follower/following
+  counts, a member directory with follow buttons, and your blocked list.
+- `app/portfolio` — your holdings, an equity-curve chart (inline SVG, no chart
+  dep), latest AI suggestions, and your logged decisions. Private to you.
 - `app/components/Nav.tsx` — shared top navigation.
+- `app/components/PostCard.tsx` — post card with like plus report/block on
+  others' posts and delete on your own.
 - `lib/api.ts` — typed client for the FastAPI backend; `lib/useAuth.ts` — the
   redirect-if-signed-out guard.
 
-The full community surface is now in the UI. Not yet surfaced (exists in the
-Streamlit app, straightforward to add here): block/report moderation controls
-and the personal portfolio/performance views.
+The full community surface plus moderation and a personal portfolio view are
+now in the UI.
 
 ## Config
 

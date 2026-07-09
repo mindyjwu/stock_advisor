@@ -4,6 +4,7 @@ import { useCallback, useState } from "react";
 import { api, type Post } from "@/lib/api";
 import { useAuthGuard } from "@/lib/useAuth";
 import Nav from "@/app/components/Nav";
+import PostCard from "@/app/components/PostCard";
 
 export default function DiscussPage() {
   const ready = useAuthGuard();
@@ -45,12 +46,6 @@ export default function DiscussPage() {
     }
   }
 
-  async function like(p: Post) {
-    if (p.liked) await api.unlike(p.id);
-    else await api.like(p.id);
-    void load(active);
-  }
-
   if (!ready) return <div className="wrap muted">Loading…</div>;
 
   return (
@@ -82,18 +77,7 @@ export default function DiscussPage() {
             <div className="section-title">${active} discussion</div>
             {posts.length === 0 && <div className="muted">No posts yet — start the conversation above.</div>}
             {posts.map((p) => (
-              <div key={p.id} className="card">
-                <div className="row">
-                  <strong>
-                    {p.avatar} {p.display_name}
-                  </strong>
-                  <span className="right muted">{p.created_at.slice(0, 16).replace("T", " ")} UTC</span>
-                </div>
-                <div style={{ margin: "0.4rem 0 0.6rem", whiteSpace: "pre-wrap" }}>{p.body}</div>
-                <button onClick={() => like(p)}>
-                  {p.liked ? "❤" : "🤍"} {p.likes}
-                </button>
-              </div>
+              <PostCard key={p.id} post={p} onChange={() => load(active)} />
             ))}
           </>
         )}

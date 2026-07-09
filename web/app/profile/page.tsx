@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { api, type Profile, type Member } from "@/lib/api";
+import { api, type Profile, type Member, type BlockedUser } from "@/lib/api";
 import { useAuthGuard } from "@/lib/useAuth";
 import Nav from "@/app/components/Nav";
 
@@ -9,6 +9,7 @@ export default function ProfilePage() {
   const ready = useAuthGuard();
   const [p, setP] = useState<Profile | null>(null);
   const [members, setMembers] = useState<Member[]>([]);
+  const [blocked, setBlocked] = useState<BlockedUser[]>([]);
   const [bio, setBio] = useState("");
   const [avatar, setAvatar] = useState("🙂");
   const [pub, setPub] = useState(false);
@@ -23,7 +24,13 @@ export default function ProfilePage() {
     setPub(prof.is_public);
     setSr(prof.share_returns);
     setMembers(await api.members());
+    setBlocked(await api.blocked());
   }, []);
+
+  async function unblock(id: number) {
+    await api.unblock(id);
+    void load();
+  }
 
   useEffect(() => {
     if (ready) void load();
@@ -97,6 +104,22 @@ export default function ProfilePage() {
             </button>
           </div>
         ))}
+
+        {blocked.length > 0 && (
+          <>
+            <div className="section-title">Blocked</div>
+            {blocked.map((b) => (
+              <div key={b.user_id} className="card row">
+                <span>
+                  {b.avatar} {b.display_name}
+                </span>
+                <button className="right" onClick={() => unblock(b.user_id)}>
+                  Unblock
+                </button>
+              </div>
+            ))}
+          </>
+        )}
       </div>
     </>
   );

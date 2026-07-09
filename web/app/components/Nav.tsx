@@ -6,6 +6,7 @@ import { clearToken } from "@/lib/api";
 
 const LINKS: [string, string][] = [
   ["/", "Feed"],
+  ["/portfolio", "Portfolio"],
   ["/discuss", "Discuss"],
   ["/lists", "Shared Lists"],
   ["/profile", "Profile"],
