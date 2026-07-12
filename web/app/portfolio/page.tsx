@@ -8,9 +8,16 @@ import {
   type Suggestion,
   type Decision,
   type Position,
+  type SellSignal,
 } from "@/lib/api";
 import { useAuthGuard } from "@/lib/useAuth";
 import Nav from "@/app/components/Nav";
+
+const SELL_COLOR: Record<string, string> = {
+  Sell: "#dc2626",
+  Trim: "#b45309",
+  Hold: "#15803d",
+};
 
 function usd(n: number): string {
   return "$" + Math.round(n).toLocaleString();
@@ -59,6 +66,17 @@ export default function PortfolioPage() {
   const [snaps, setSnaps] = useState<Snapshot[]>([]);
   const [sugs, setSugs] = useState<Suggestion[]>([]);
   const [decisions, setDecisions] = useState<Decision[]>([]);
+  const [sells, setSells] = useState<SellSignal[] | null>(null);
+  const [loadingSells, setLoadingSells] = useState(false);
+
+  async function loadSells() {
+    setLoadingSells(true);
+    try {
+      setSells(await api.sellSignals());
+    } finally {
+      setLoadingSells(false);
+    }
+  }
 
   const load = useCallback(async () => {
     const [h, s, g, d] = await Promise.all([
@@ -107,6 +125,70 @@ export default function PortfolioPage() {
         <div className="card">
           <div className="section-title">📈 Portfolio value over time</div>
           <EquityChart data={snaps} />
+        </div>
+
+        <div className="card">
+          <div className="section-title">🔻 When to Sell</div>
+          <div className="muted" style={{ marginBottom: "0.6rem" }}>
+            A sell-side review of your holdings — stop-losses, stretched valuations, fading
+            momentum, and profit-taking on big winners.
+          </div>
+          {sells === null ? (
+            <button className="primary" onClick={loadSells} disabled={loadingSells}>
+              {loadingSells ? "Reviewing…" : "Check my holdings for sell signals"}
+            </button>
+          ) : sells.length === 0 ? (
+            <div className="muted">No holdings to review yet.</div>
+          ) : (
+            sells.map((s) => (
+              <div
+                key={s.symbol}
+                className="row"
+                style={{ alignItems: "flex-start", padding: "0.55rem 0", borderTop: "1px solid #eef1f7" }}
+              >
+                <div style={{ minWidth: 96 }}>
+                  <strong>{s.symbol}</strong>
+                  <br />
+                  <span className="muted">{s.quantity} sh</span>{" "}
+                  {s.gl_pct != null && (
+                    <span className={s.gl_pct >= 0 ? "pos" : "neg"}>
+                      {s.gl_pct >= 0 ? "+" : ""}
+                      {s.gl_pct}%
+                    </span>
+                  )}
+                </div>
+                <div style={{ minWidth: 118 }}>
+                  <span
+                    style={{
+                      background: SELL_COLOR[s.verdict],
+                      color: "#fff",
+                      borderRadius: 999,
+                      padding: "2px 12px",
+                      fontWeight: 700,
+                      fontSize: "0.8rem",
+                    }}
+                  >
+                    {s.verdict}
+                  </span>
+                  <div className="muted" style={{ marginTop: "0.25rem" }}>
+                    urgency {s.urgency}/100
+                  </div>
+                </div>
+                <div style={{ flex: 1 }}>
+                  {s.verdict !== "Hold" && s.suggested_sell_qty ? (
+                    <div style={{ fontWeight: 700, fontSize: "0.85rem" }}>
+                      Suggested: sell {s.suggested_sell_qty} share(s)
+                    </div>
+                  ) : null}
+                  {s.reasons.slice(0, 3).map((r, i) => (
+                    <div key={i} className="muted" style={{ fontSize: "0.82rem" }}>
+                      • {r}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))
+          )}
         </div>
 
         <div className="card">

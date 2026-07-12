@@ -134,6 +134,17 @@ export interface Decision {
   score: number | null;
   decided_at: string;
 }
+export interface SellSignal {
+  symbol: string;
+  verdict: "Hold" | "Trim" | "Sell";
+  urgency: number;
+  reasons: string[];
+  gl_pct: number | null;
+  current_price: number | null;
+  quantity: number;
+  suggested_sell_qty: number | null;
+  flags: { technical: string[]; valuation: string[]; risk: string[] };
+}
 
 async function req<T>(path: string, opts: RequestInit = {}): Promise<T> {
   const headers: Record<string, string> = {
@@ -207,4 +218,5 @@ export const api = {
   suggestions: () => req<Suggestion[]>("/api/suggestions"),
   snapshots: () => req<Snapshot[]>("/api/performance/snapshots"),
   decisions: () => req<Decision[]>("/api/decisions"),
+  sellSignals: () => req<SellSignal[]>("/api/holdings/sell-signals"),
 };
