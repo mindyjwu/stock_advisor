@@ -40,6 +40,7 @@ from db.store import (
 from agents.screener import STYLE_META
 from scripts.run_analysis import run_analysis as _run_analysis
 from agents.allocator import build_plan, PROFILES
+from agents.sell_signals import evaluate_holdings as _evaluate_holdings
 from app.auth import require_login, logout
 import db.community as _community
 from app.config import (
@@ -1446,6 +1447,62 @@ if page == "Dashboard":  # ── includes Portfolio ──
 elif page == "Stock Advisor":
     st.markdown("# 🎯 Stock Advisor")
     st.markdown("Top-down: the market's mood → the AI's best picks you don't own yet → a concrete plan for your cash.")
+
+    # ══ When to Sell: a sell-side check on what you already own ════════════════
+    st.markdown('<div class="section-header">🔻 When to Sell — your holdings</div>', unsafe_allow_html=True)
+    st.caption("Before new buys: a sell-side review of the stocks you own — stop-losses, "
+               "stretched valuations, fading momentum, and profit-taking on big winners.")
+    _sell_positions = load_holdings().get("positions", [])
+    if not _sell_positions:
+        st.info("No holdings to review yet — import your portfolio in **Settings**.")
+    else:
+        if st.button("🔻  Check my holdings for sell signals", key="run_sell_signals"):
+            with st.spinner(f"Reviewing your {len(_sell_positions)} holdings…"):
+                _ai_scores = {r["symbol"]: r["score"] for r in get_latest_run_suggestions()}
+                st.session_state["sell_signals"] = _evaluate_holdings(UID, _ai_scores)
+        _sigs = st.session_state.get("sell_signals")
+        if _sigs is None:
+            st.caption("Click above to score each holding on how urgently it warrants a look. "
+                       "Signals sharpen after you've run an analysis (adds the AI thesis).")
+        else:
+            _SELL_COLOR = {"Sell": "#dc2626", "Trim": "#b45309", "Hold": "#15803d"}
+            _n_act = sum(1 for s in _sigs if s["verdict"] != "Hold")
+            st.markdown(
+                f"<div style='font-size:.85rem;color:#334155;margin:.2rem 0 .6rem'>"
+                f"<b>{_n_act}</b> of <b>{len(_sigs)}</b> holdings flagged for action "
+                f"(Sell/Trim); the rest look fine to hold.</div>" if _n_act else
+                "<div style='font-size:.85rem;color:#15803d;margin:.2rem 0 .6rem'>"
+                "✅ Nothing flagged — every holding still looks like a hold.</div>",
+                unsafe_allow_html=True)
+            for s in _sigs:
+                _col = _SELL_COLOR[s["verdict"]]
+                _gl = s.get("gl_pct")
+                _glstr = (f"<span style=\"color:{'#15803d' if _gl >= 0 else '#dc2626'};font-weight:600\">"
+                          f"{'+' if _gl >= 0 else ''}{_gl:.1f}%</span>") if _gl is not None else "—"
+                _bar = min(max(int(s["urgency"]), 0), 100)
+                sc1, sc2, sc3 = st.columns([1.4, 1.2, 3.4])
+                with sc1:
+                    st.markdown(f"**{s['symbol']}**  \n"
+                                f"<small style='color:#64748b'>{s['quantity']:g} sh · {_glstr}</small>",
+                                unsafe_allow_html=True)
+                with sc2:
+                    st.markdown(
+                        f"<span style='background:{_col};color:#fff;border-radius:99px;"
+                        f"padding:2px 12px;font-weight:700;font-size:.8rem'>{s['verdict']}</span>"
+                        f"<div style='color:#94a3b8;font-size:.7rem;margin-top:.35rem'>urgency {int(s['urgency'])}/100</div>"
+                        f"<div class='score-bar-bg' style='margin-top:2px'>"
+                        f"<div class='score-bar-fill' style='width:{_bar}%;background:{_col}'></div></div>",
+                        unsafe_allow_html=True)
+                with sc3:
+                    if s["verdict"] != "Hold" and s.get("suggested_sell_qty"):
+                        st.markdown(f"<div style='font-size:.82rem;color:#0f172a;font-weight:700'>"
+                                    f"Suggested: sell {s['suggested_sell_qty']:g} share(s)</div>",
+                                    unsafe_allow_html=True)
+                    for _r in s["reasons"][:4]:
+                        st.markdown(f"<div style='font-size:.8rem;color:#475569'>• {_r}</div>",
+                                    unsafe_allow_html=True)
+                st.divider()
+    st.markdown("<br>", unsafe_allow_html=True)
 
     # ── Get scored results: this session first, then the last saved run ──────
     results   = st.session_state.get("results")
