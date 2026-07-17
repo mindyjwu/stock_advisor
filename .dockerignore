@@ -1,0 +1,16 @@
+.git
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+db/*.db
+db/*.sqlite
+data/users/
+data/cache/
+data/*.migrated
+web/node_modules/
+web/.next/
+tests/
+*.log
+.claude/

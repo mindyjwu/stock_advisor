@@ -1,0 +1,60 @@
+# Runs the whole stack: Postgres + FastAPI + Streamlit + Next.js web.
+#
+#   cp .env.docker.example .env        # set ANTHROPIC_API_KEY, API_SECRET
+#   docker compose up --build
+#
+# Streamlit:  http://localhost:8501
+# API:        http://localhost:8000  (docs at /docs)
+# Web:        http://localhost:3000
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: stockadvisor
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-stockadvisor}
+      POSTGRES_DB: stock_advisor
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "stockadvisor"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build: .
+    command: ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    environment:
+      DATABASE_URL: postgresql://stockadvisor:${POSTGRES_PASSWORD:-stockadvisor}@db:5432/stock_advisor
+      API_SECRET: ${API_SECRET:?set API_SECRET in .env}
+      API_CORS_ORIGINS: http://localhost:3000
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  streamlit:
+    build: .
+    environment:
+      DATABASE_URL: postgresql://stockadvisor:${POSTGRES_PASSWORD:-stockadvisor}@db:5432/stock_advisor
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    ports:
+      - "8501:8501"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web:
+    build:
+      context: ./web
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+
+volumes:
+  pgdata:

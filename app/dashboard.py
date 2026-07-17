@@ -313,23 +313,11 @@ def delete_shared_watchlist(list_id):   return _community.delete_shared_watchlis
 def get_shared_watchlists(limit=50):    return _community.get_shared_watchlists(UID, limit)
 
 def verified_return_pct(candidate_id):
-    """Average % return across a user's 'bought' decisions, priced live.
-    This is the leaderboard's verifiable metric — it comes from timestamped
-    decision logs, not self-reported numbers. Returns (avg_pct, n) or (None, 0)."""
-    rets = []
-    for d in _get_decisions(candidate_id):
-        if d.get("decision") != "bought":
-            continue
-        then = _safe_float(d.get("price"))
-        if then <= 0:
-            continue
-        info = fetch_ticker_info(d["symbol"])
-        now = _safe_float(info.get("currentPrice") or info.get("regularMarketPrice"))
-        if now > 0:
-            rets.append((now - then) / then * 100)
-    if not rets:
-        return None, 0
-    return sum(rets) / len(rets), len(rets)
+    """Average % return across a user's 'bought' decisions, priced live — the
+    leaderboard's verifiable metric (from timestamped decision logs, not
+    self-reported). Cached per user via agents.track_record. (avg_pct, n)."""
+    from agents.track_record import verified_return
+    return verified_return(candidate_id)
 def backup_holdings():                  return _backup_holdings(UID)
 def restore_holdings(path):             return _restore_holdings(UID, path)
 def get_latest_run_suggestions():      return _get_latest_run_suggestions(UID)

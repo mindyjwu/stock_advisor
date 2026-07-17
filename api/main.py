@@ -27,7 +27,7 @@ import db.users as users
 import db.store as store
 import db.community as community
 from data.loader import (
-    load_watchlist, load_holdings, fetch_ticker_info, save_watchlist,
+    load_watchlist, load_holdings, save_watchlist,
 )
 from db.connection import backend_name
 from api.security import issue_token, verify_token
@@ -124,6 +124,12 @@ def signup(body: SignupIn):
 def login(body: LoginIn):
     user = users.authenticate(body.username, body.password)
     if not user:
+        locked = users.lockout_remaining_seconds(body.username)
+        if locked > 0:
+            raise HTTPException(
+                status_code=429,
+                detail=f"Too many failed attempts. Try again in {locked // 60 + 1} minute(s).",
+            )
         raise HTTPException(status_code=401, detail="Wrong username or password")
     return _auth_response(user)
 
@@ -154,20 +160,8 @@ def update_my_profile(body: ProfileIn, user: dict = Depends(get_current_user)):
 
 # ── Community: leaderboard, feed, posts, threads, follow, members, lists ─────
 def _verified_return(candidate_id: int):
-    rets = []
-    for d in store.get_decisions(candidate_id):
-        if d.get("decision") != "bought":
-            continue
-        then = d.get("price") or 0
-        if then <= 0:
-            continue
-        info = fetch_ticker_info(d["symbol"])
-        now = info.get("currentPrice") or info.get("regularMarketPrice") or 0
-        if now and now > 0:
-            rets.append((now - then) / then * 100)
-    if not rets:
-        return None, 0
-    return round(sum(rets) / len(rets), 2), len(rets)
+    from agents.track_record import verified_return
+    return verified_return(candidate_id)
 
 
 @app.get("/api/community/leaderboard")

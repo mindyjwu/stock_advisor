@@ -106,19 +106,53 @@ agents/
   allocator.py      Deposit → diversified buy plan
   screener.py       Style tagging + sector-diverse shortlists
   supply_chain.py   AI supply-chain niche discovery
+  sell_signals.py   🔻 When-to-sell engine for holdings
+  track_record.py   Cached verified-return metric (leaderboard)
   alerts.py         Alert trigger rules
 scripts/
-  run_analysis.py   Watchlist analysis pipeline (parallel)
-  market_scan.py    Two-pass S&P 500 scan (bulk downloads)
-  alert_poller.py   Background market-hours alert poller (owner)
+  run_analysis.py       Watchlist analysis pipeline (parallel)
+  market_scan.py        Two-pass S&P 500 scan (bulk downloads)
+  alert_poller.py       Background market-hours alert poller (owner)
+  migrate_to_postgres.py  Copy an existing SQLite DB into Postgres
 data/
   loader.py         Market data fetching + per-user storage
   sp500.py          S&P 500 universe
   pdf_import.py     Chase/JPM PDF statement parser
 db/
-  store.py          SQLite: suggestions, picks, alerts, scans (per user)
-  users.py          Accounts + PBKDF2 password auth
+  connection.py     Backend abstraction (SQLite default, Postgres via DATABASE_URL)
+  store.py          Suggestions, picks, alerts, scans, snapshots, decisions, imports
+  users.py          Accounts + PBKDF2 auth + login lockout
+  community.py      Profiles, follows, posts, likes, shared lists, blocks, reports
+api/                FastAPI backend over the same engine (see api/README.md)
+web/                Next.js community frontend (see web/README.md)
+tests/              pytest suite (runs on SQLite and Postgres)
 ```
+
+## Development & testing
+
+```bash
+pip install -r requirements-dev.txt
+pytest                              # runs against SQLite
+DATABASE_URL=postgresql://… pytest  # also runs against Postgres
+```
+
+CI (`.github/workflows/ci.yml`) runs the suite on **both** SQLite and a Postgres
+service, plus the web `next build`, on every push and PR. Dependencies are
+pinned (`requirements.txt`) so installs are reproducible.
+
+## Deployment
+
+- **SQLite (default)** — zero config; state lives in `db/advisor.db` + per-user
+  JSON. Host on a machine with a **persistent disk**; ephemeral platforms wipe
+  accounts on restart.
+- **Postgres** — set `DATABASE_URL`; migrate existing data with
+  `python3 scripts/migrate_to_postgres.py`. Recommended for real/concurrent use.
+- **Docker** — `cp .env.docker.example .env`, set `API_SECRET` +
+  `ANTHROPIC_API_KEY`, then `docker compose up --build` brings up Postgres, the
+  API (`:8000`), Streamlit (`:8501`), and the web app (`:3000`).
+- **Security** — set a strong `API_SECRET` for the API (it refuses to start with
+  the dev default when `APP_ENV=production`); accounts lock for 15 min after 5
+  failed logins.
 
 ## Configuration notes
 
@@ -130,7 +164,7 @@ db/
 - **Costs** — analyses use one batched Claude call for sentiment; the market scan
   adds one more; supply-chain discovery is one call per click. All users share the
   owner's API key.
-- **Hosting caveat** — state lives in SQLite + JSON files on disk. Host it on a
-  machine with a persistent disk (a small VPS or an always-on Mac). Platforms with
-  ephemeral filesystems (e.g. Streamlit Community Cloud) will wipe accounts and
-  portfolios on every restart.
+- **Hosting caveat** — with the default SQLite backend, state lives in SQLite +
+  JSON files on disk, so host on a machine with a persistent disk. For
+  hosted/ephemeral platforms, use **Postgres** (`DATABASE_URL`) so accounts and
+  portfolios survive restarts. See the **Deployment** section above.

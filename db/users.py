@@ -11,7 +11,7 @@ JSON files and every DB row written before accounts existed.
 import hashlib
 import hmac
 import secrets
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 
 from db.connection import connect as _conn, IS_POSTGRES, INTEGRITY_ERRORS
@@ -19,6 +19,11 @@ from db.connection import connect as _conn, IS_POSTGRES, INTEGRITY_ERRORS
 PBKDF2_ITERATIONS = 200_000
 
 USERNAME_RULES = "3-20 characters: letters, numbers, underscores"
+
+# Brute-force protection: lock an account after this many consecutive failed
+# logins, for this long. Applies to both the Streamlit and API sign-ins.
+MAX_FAILED_LOGINS = 5
+LOCKOUT_MINUTES = 15
 
 
 def init_users():
@@ -47,6 +52,30 @@ def init_users():
                 is_owner     INTEGER NOT NULL DEFAULT 0,
                 created_at   TEXT NOT NULL
             )""")
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS login_attempts (
+            username     TEXT PRIMARY KEY,
+            failed_count INTEGER NOT NULL DEFAULT 0,
+            locked_until TEXT
+        )""")
+
+
+def lockout_remaining_seconds(username: str) -> int:
+    """Seconds until a locked account can try again (0 if not locked)."""
+    key = (username or "").strip().lower()
+    if not key:
+        return 0
+    with _conn() as con:
+        row = con.execute(
+            "SELECT locked_until FROM login_attempts WHERE username=?", (key,)
+        ).fetchone()
+    if not row or not row["locked_until"]:
+        return 0
+    try:
+        remaining = (datetime.fromisoformat(row["locked_until"]) - datetime.utcnow()).total_seconds()
+    except (ValueError, TypeError):
+        return 0
+    return int(remaining) if remaining > 0 else 0
 
 
 def hash_password(password: str) -> str:
@@ -113,13 +142,45 @@ def create_user(username: str, password: str, display_name: str = "") -> dict:
 
 
 def authenticate(username: str, password: str) -> Optional[dict]:
+    """Return the user on success, or None on failure OR while locked out.
+    Call lockout_remaining_seconds() to tell the two apart for the UI."""
     init_users()
+    uname = (username or "").strip()
+    key = uname.lower()
+    now = datetime.utcnow()
     with _conn() as con:
         row = con.execute(
-            "SELECT * FROM users WHERE lower(username) = lower(?)", ((username or "").strip(),)
+            "SELECT * FROM users WHERE lower(username) = lower(?)", (uname,)
         ).fetchone()
-    if row and verify_password(password or "", row["pw_hash"]):
-        return _row_to_user(row)
+        att = con.execute(
+            "SELECT failed_count, locked_until FROM login_attempts WHERE username=?", (key,)
+        ).fetchone()
+
+        # Currently locked? Reject without even checking the password.
+        if att and att["locked_until"]:
+            try:
+                if now < datetime.fromisoformat(att["locked_until"]):
+                    return None
+            except (ValueError, TypeError):
+                pass
+
+        if row and verify_password(password or "", row["pw_hash"]):
+            if att:
+                con.execute("DELETE FROM login_attempts WHERE username=?", (key,))
+            return _row_to_user(row)
+
+        # Failed attempt: increment, and lock once the threshold is hit.
+        failed = (att["failed_count"] if att else 0) + 1
+        locked_until = None
+        if failed >= MAX_FAILED_LOGINS:
+            locked_until = (now + timedelta(minutes=LOCKOUT_MINUTES)).isoformat()
+            failed = 0  # start a fresh count after the lock expires
+        con.execute(
+            "INSERT INTO login_attempts (username, failed_count, locked_until) VALUES (?,?,?) "
+            "ON CONFLICT(username) DO UPDATE SET "
+            "failed_count=excluded.failed_count, locked_until=excluded.locked_until",
+            (key, failed, locked_until),
+        )
     return None
 
 
