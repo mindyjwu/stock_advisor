@@ -1503,6 +1503,24 @@ elif page == "Stock Advisor":
             _summary.append(f"the rest fine to hold")
             st.markdown(f"<div style='font-size:.85rem;color:#334155;margin:.2rem 0 .6rem'>"
                         f"{' · '.join(_summary)}.</div>", unsafe_allow_html=True)
+
+            # ── AI second opinion on the EXTREME sells (reads the news) ───────
+            _extreme = [s for s in _sigs if s["verdict"] == "Sell"][:8]
+            if _extreme:
+                if st.button("🧠  Second opinion on urgent sells — read the news & macro context",
+                             key="run_sell_review"):
+                    with st.spinner(f"Reading recent headlines & catalysts for {len(_extreme)} urgent sells…"):
+                        from agents.sell_signals import ai_sell_review_batch
+                        os.environ["ADVISOR_AI_MODEL"] = st.session_state.get("ai_model_id", "claude-sonnet-4-6")
+                        st.session_state["sell_review"] = ai_sell_review_batch(
+                            [{"symbol": s["symbol"], "reasons": s["reasons"], "gl_pct": s.get("gl_pct")}
+                             for s in _extreme])
+                        if not st.session_state["sell_review"]:
+                            st.warning("Couldn't fetch a news review right now (needs the AI key and recent headlines).")
+                st.caption("The mechanical model reads charts, not news. This asks the AI whether each urgent "
+                           "sell is a true breakdown or has a real catalyst to hold through (e.g. policy tailwinds).")
+            _sreview = st.session_state.get("sell_review") or {}
+
             # Order the list so action items (sell/trim, then add) float to the top
             _order = {"Sell": 0, "Trim": 1, "Add": 2, "Hold": 3}
             for s in sorted(_sigs, key=lambda x: (_order.get(x["verdict"], 4), -x["urgency"])):
@@ -1543,6 +1561,20 @@ elif page == "Stock Advisor":
                     for _r in s["reasons"][:4]:
                         st.markdown(f"<div style='font-size:.8rem;color:#475569'>• {_r}</div>",
                                     unsafe_allow_html=True)
+                    # AI news-aware second opinion (extreme sells only)
+                    _rev = _sreview.get(s["symbol"])
+                    if _rev:
+                        _stance = _rev.get("stance", "Mixed")
+                        _sc_col = {"Confirm": "#dc2626", "Reconsider": "#15803d", "Mixed": "#b45309"}.get(_stance, "#b45309")
+                        _sc_lbl = {"Confirm": "✅ Confirms the sell", "Reconsider": "🤔 Maybe hold through",
+                                   "Mixed": "⚖️ Genuinely mixed"}.get(_stance, _stance)
+                        _cat = f" <i>Catalyst: {html.escape(_rev['catalyst'])}.</i>" if _rev.get("catalyst") else ""
+                        st.markdown(
+                            f"<div style='font-size:.8rem;color:#334155;background:#eef2ff;"
+                            f"border-left:3px solid {_sc_col};border-radius:6px;padding:.4rem .6rem;margin:.3rem 0'>"
+                            f"🧠 <b>AI second opinion — <span style='color:{_sc_col}'>{_sc_lbl}</span>:</b> "
+                            f"{html.escape(_rev['rationale']).replace('$','&#36;')}{_cat}</div>",
+                            unsafe_allow_html=True)
                     if s["verdict"] == "Hold" and s.get("stop_loss_price"):
                         st.markdown(f"<div style='font-size:.75rem;color:#94a3b8;margin-top:.2rem'>"
                                     f"🛡️ Protective stop-loss idea: exit if it falls to "

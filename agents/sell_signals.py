@@ -252,6 +252,80 @@ def evaluate_sell(position: dict, info: dict = None, price_history=None,
     }
 
 
+def ai_sell_review_batch(items: list) -> dict:
+    """News-aware 'second opinion' on mechanical SELL flags.
+
+    The rest of this module is purely mechanical — it sees a downtrend and says
+    sell, blind to *why*. This asks Claude to read each name's recent headlines
+    and known catalysts and judge whether the sell is confirmed by the story, or
+    whether there's a specific, credible reason to hold through the weakness
+    (a turnaround, a policy tailwind like US-foundry support for INTC, or bad
+    news already priced in).
+
+    items: [{symbol, reasons[], gl_pct}]  (typically just the extreme sells)
+    Returns {symbol: {stance: Confirm|Reconsider|Mixed, rationale, catalyst}}.
+    Empty dict if no API key or on failure — the mechanical verdict still stands.
+    """
+    import os, json
+    from concurrent.futures import ThreadPoolExecutor
+    from agents.sentiment import _fetch_headlines, _get_client
+
+    if not items or not os.environ.get("ANTHROPIC_API_KEY"):
+        return {}
+
+    symbols = [it["symbol"] for it in items]
+    with ThreadPoolExecutor(max_workers=min(10, len(symbols))) as ex:
+        heads = dict(zip(symbols, ex.map(lambda s: _fetch_headlines(s, 5), symbols)))
+
+    blocks = []
+    for it in items:
+        s = it["symbol"]
+        hl = heads.get(s) or ["(no recent headlines found)"]
+        gl = it.get("gl_pct")
+        gl_txt = f"your position is {'up' if (gl or 0) >= 0 else 'down'} {abs(gl):.0f}%" if gl is not None else ""
+        blocks.append(f"{s} — mechanical sell signals: {'; '.join(it.get('reasons', [])[:4])}. "
+                      f"{gl_txt}\n  Recent headlines:\n    - " + "\n    - ".join(hl[:5]))
+
+    prompt = f"""You are a skeptical portfolio risk analyst giving a second opinion.
+Our mechanical model flagged each stock below as a SELL from price/valuation
+signals alone — it cannot read news. Decide whether the news and known
+catalysts CONFIRM the sell, or whether there is a SPECIFIC, credible reason to
+hold through the weakness (a real turnaround, a policy/industry tailwind, or the
+bad news already being priced in).
+
+Be honest and disciplined: most downtrends are real. Only say "Reconsider" when
+you can name a concrete catalyst — never a vague hope. Prefer "Confirm" when the
+weakness looks fundamental.
+
+{chr(10).join(blocks)}
+
+Respond ONLY with JSON mapping each ticker to:
+{{"SYMB": {{"stance": "Confirm" | "Reconsider" | "Mixed", "rationale": "1-2 plain sentences a beginner understands", "catalyst": "short phrase, or null if none"}}}}"""
+
+    try:
+        model_id = os.environ.get("ADVISOR_AI_MODEL", "claude-sonnet-4-6")
+        resp = _get_client().messages.create(
+            model=model_id, max_tokens=1500,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        text = resp.content[0].text.strip()
+        if text.startswith("```"):
+            text = text.strip("`").lstrip("json").strip()
+        data = json.loads(text)
+        out = {}
+        for s in symbols:
+            e = data.get(s) or {}
+            if e.get("rationale"):
+                out[s] = {
+                    "stance": e.get("stance", "Mixed"),
+                    "rationale": e["rationale"].strip(),
+                    "catalyst": (e.get("catalyst") or "").strip() or None,
+                }
+        return out
+    except Exception:
+        return {}
+
+
 def evaluate_holdings(user_id: int, ai_scores: dict = None, max_workers: int = 12) -> list:
     """Run evaluate_sell over every position a user holds, fetching market data
     in parallel. Returns a list sorted by urgency (most urgent first).
