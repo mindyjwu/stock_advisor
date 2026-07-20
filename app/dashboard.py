@@ -16,7 +16,7 @@ from datetime import datetime
 from streamlit_autorefresh import st_autorefresh
 
 from data.loader import (
-    fetch_ticker_info, fetch_price_history, current_portfolio_value,
+    fetch_ticker_info, fetch_price_history,
     load_watchlist as _load_watchlist, load_holdings as _load_holdings,
     save_watchlist as _save_watchlist, save_holdings as _save_holdings,
     load_user_settings as _load_user_settings, save_user_settings as _save_user_settings,
@@ -1562,7 +1562,7 @@ long-term company view.
             _summary = []
             if _n_sell: _summary.append(f"<b>{_n_sell}</b> to sell/trim")
             if _n_add:  _summary.append(f"<b>{_n_add}</b> worth adding to")
-            _summary.append(f"the rest fine to hold")
+            _summary.append("the rest fine to hold")
             st.markdown(f"<div style='font-size:.85rem;color:#334155;margin:.2rem 0 .6rem'>"
                         f"{' · '.join(_summary)}.</div>", unsafe_allow_html=True)
 
@@ -2798,7 +2798,6 @@ def _render_performance_section():
         _last_v  = _safe_float(_snaps[-1]["total_value"])
         _chg     = _last_v - _first_v
         _chg_pct = (_chg / _first_v * 100) if _first_v else 0.0
-        _eq_col  = "#15803d" if _chg >= 0 else "#dc2626"
         st.caption(f"Tracked across {len(_snaps)} day(s) — "
                    f"{'up' if _chg >= 0 else 'down'} ${abs(_chg):,.0f} ({_chg_pct:+.1f}%) since tracking began. "
                    "A point is saved each day you open the dashboard.")
@@ -2891,7 +2890,7 @@ def _render_performance_section():
     else:
         rows = []
         with st.spinner("Fetching prices…"):
-            from concurrent.futures import ThreadPoolExecutor as _TPE, as_completed as _asc
+            from concurrent.futures import ThreadPoolExecutor as _TPE
             import datetime as _dt
 
             def _fetch_perf(b):
