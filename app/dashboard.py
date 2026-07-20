@@ -1861,32 +1861,78 @@ long-term company view.
         st.caption("🪑 On the bench (score 45–59, wait and see): "
                    + " · ".join(f"{r['symbol']} ({r['score']:.0f})" for r in _bench_sa))
 
-    # ══ 3) Score ladder — every candidate at a glance ═════════════════════════
+    # ══ 3) Momentum story — who's actually been climbing (3-month lines) ══════
     if _picks_sa:
-        with st.expander(f"📶 Score ladder — all {len(_picks_sa)} picks at a glance"):
-            _lad = sorted(_picks_sa, key=lambda x: x["score"])
-            _fig_lad = go.Figure(go.Bar(
-                x=[x["score"] for x in _lad],
-                y=[x["symbol"] for x in _lad],
-                orientation="h",
-                marker_color=[_score_color(x["score"]) for x in _lad],
-                text=[f"{x['score']:.0f}" for x in _lad],
-                textposition="outside", textfont_size=11,
-                customdata=[[x["fund_score"], x["tech_score"], x["sent_score"]] for x in _lad],
-                hovertemplate="<b>%{y}</b> — %{x:.0f}/100<br>Health %{customdata[0]:.0f} · "
-                              "Trend %{customdata[1]:.0f} · News %{customdata[2]:.0f}<extra></extra>",
+        st.markdown('<div class="section-header">📈 Who\'s been climbing — last 3 months</div>', unsafe_allow_html=True)
+
+        from concurrent.futures import ThreadPoolExecutor as _TPEp
+        def _perf_series(sym):
+            try:
+                h = fetch_price_history(sym, "3mo")
+                c = h["Close"].dropna()
+                if len(c) < 5:
+                    return sym, None
+                return sym, (c / c.iloc[0] - 1) * 100  # % change from period start
+            except Exception:
+                return sym, None
+        _pick_syms = [p["symbol"] for p in _picks_sa[:12]]
+        with _TPEp(max_workers=min(10, len(_pick_syms) or 1)) as _ex:
+            _perf = {s: ser for s, ser in _ex.map(_perf_series, _pick_syms) if ser is not None}
+
+        if not _perf:
+            st.caption("Price history isn't available for these picks right now — try again shortly.")
+        else:
+            _ranked = sorted(_perf.items(), key=lambda kv: kv[1].iloc[-1], reverse=True)
+            _winner, _wser = _ranked[0]
+            _wend = _wser.iloc[-1]
+            _runner = _ranked[1][0] if len(_ranked) > 1 else None
+            _wblurb = _blurbs_sa.get(_winner, "")
+            # Headline: name the standout and tell the story in one line
+            _wcol = "#16a34a" if _wend >= 0 else "#dc2626"
+            st.markdown(
+                f"<div style='font-size:.92rem;color:#334155;margin:-.2rem 0 .5rem'>"
+                f"🏆 <b>{_winner}</b> leads the pack — <b style='color:{_wcol}'>{'+' if _wend>=0 else ''}{_wend:.0f}%</b> "
+                f"over 3 months"
+                + (f", ahead of {_runner}" if _runner else "")
+                + (f". <span style='color:#64748b'>{_wblurb.split('.')[0]}.</span>" if _wblurb else ".")
+                + "</div>", unsafe_allow_html=True)
+
+            _fig_perf = go.Figure()
+            # De-emphasized field first (thin grey), so the winner draws on top
+            for _sym, _ser in _ranked[1:]:
+                _fig_perf.add_trace(go.Scatter(
+                    x=_ser.index, y=_ser.values, mode="lines", name=_sym,
+                    line=dict(color="#cbd5e1", width=1), opacity=0.7,
+                    hovertemplate=f"<b>{_sym}</b> %{{x|%b %d}}: %{{y:+.1f}}%<extra></extra>",
+                ))
+            # The standout: thick emerald, labelled at the end
+            _fig_perf.add_trace(go.Scatter(
+                x=_wser.index, y=_wser.values, mode="lines", name=_winner,
+                line=dict(color="#10b981", width=3.5),
+                hovertemplate=f"<b>{_winner}</b> %{{x|%b %d}}: %{{y:+.1f}}%<extra></extra>",
             ))
-            for _thr, _lbl in ((60, "Buy ↑"), (75, "Strong Buy ↑")):
-                _fig_lad.add_vline(x=_thr, line_dash="dot", line_color="#c7d2fe", line_width=1.5)
-                _fig_lad.add_annotation(x=_thr, y=1.02, yref="paper", text=_lbl, showarrow=False,
-                                        font=dict(size=10, color="#818cf8"))
-            _fig_lad.update_layout(
-                height=max(220, 36 * len(_lad) + 60), xaxis=dict(range=[0, 108], gridcolor="#f1f5f9"),
-                yaxis=dict(showgrid=False), margin=dict(l=10, r=10, t=30, b=10),
-                paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                font=dict(family="Inter", size=11),
+            _fig_perf.add_annotation(x=_wser.index[-1], y=_wend, text=f"  {_winner} {'+' if _wend>=0 else ''}{_wend:.0f}%",
+                                     showarrow=False, xanchor="left", font=dict(size=12, color="#0f7a48", family="Inter"))
+            # Runner-up gets a soft accent so the top-2 read clearly
+            if _runner:
+                _rser = dict(_ranked)[_runner]
+                _fig_perf.add_trace(go.Scatter(
+                    x=_rser.index, y=_rser.values, mode="lines", name=_runner,
+                    line=dict(color="#818cf8", width=2), opacity=0.9,
+                    hovertemplate=f"<b>{_runner}</b> %{{x|%b %d}}: %{{y:+.1f}}%<extra></extra>",
+                ))
+            _fig_perf.add_hline(y=0, line_color="#e2e8f0", line_width=1)
+            _fig_perf.update_layout(
+                height=300, margin=dict(l=10, r=70, t=10, b=10),
+                showlegend=False, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                font=dict(family="Inter", size=11), hovermode="x unified",
+                xaxis=dict(showgrid=False, tickformat="%b %d"),
+                yaxis=dict(title="% change", ticksuffix="%", gridcolor="#f1f5f9", zerolinecolor="#e2e8f0"),
             )
-            st.plotly_chart(_fig_lad, use_container_width=True, config={"displayModeBar": False})
+            st.plotly_chart(_fig_perf, use_container_width=True, config={"displayModeBar": False})
+            st.caption(f"Each line is a pick's price change since 3 months ago (all start at 0%). "
+                       f"The **emerald** line is the strongest performer, **indigo** is runner-up, grey is the rest. "
+                       f"Past performance doesn't guarantee future results — a stock that already ran up may have less room left.")
 
         _wl_all_sa = load_watchlist()
         with st.expander(f"👁 Your watchlist ({len(_wl_all_sa)} stocks the AI scores each run)"):
