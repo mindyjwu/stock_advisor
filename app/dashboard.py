@@ -1861,14 +1861,21 @@ long-term company view.
         st.caption("🪑 On the bench (score 45–59, wait and see): "
                    + " · ".join(f"{r['symbol']} ({r['score']:.0f})" for r in _bench_sa))
 
-    # ══ 3) Momentum story — who's actually been climbing (3-month lines) ══════
+    # ══ 3) Momentum story — who's actually been climbing (line chart) ═════════
     if _picks_sa:
-        st.markdown('<div class="section-header">📈 Who\'s been climbing — last 3 months</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-header">📈 Who\'s been climbing</div>', unsafe_allow_html=True)
+
+        # Time-window toggle: shift from 1 month out to 2 years
+        _PERIODS = {"1M": ("1mo", "1 month"), "3M": ("3mo", "3 months"), "6M": ("6mo", "6 months"),
+                    "1Y": ("1y", "1 year"), "2Y": ("2y", "2 years")}
+        _win = st.radio("Time window", list(_PERIODS.keys()), index=1, horizontal=True,
+                        key="perf_window", label_visibility="collapsed")
+        _yf_period, _win_words = _PERIODS[_win]
 
         from concurrent.futures import ThreadPoolExecutor as _TPEp
         def _perf_series(sym):
             try:
-                h = fetch_price_history(sym, "3mo")
+                h = fetch_price_history(sym, _yf_period)
                 c = h["Close"].dropna()
                 if len(c) < 5:
                     return sym, None
@@ -1892,7 +1899,7 @@ long-term company view.
             st.markdown(
                 f"<div style='font-size:.92rem;color:#334155;margin:-.2rem 0 .5rem'>"
                 f"🏆 <b>{_winner}</b> leads the pack — <b style='color:{_wcol}'>{'+' if _wend>=0 else ''}{_wend:.0f}%</b> "
-                f"over 3 months"
+                f"over {_win_words}"
                 + (f", ahead of {_runner}" if _runner else "")
                 + (f". <span style='color:#64748b'>{_wblurb.split('.')[0]}.</span>" if _wblurb else ".")
                 + "</div>", unsafe_allow_html=True)
@@ -1930,9 +1937,10 @@ long-term company view.
                 yaxis=dict(title="% change", ticksuffix="%", gridcolor="#f1f5f9", zerolinecolor="#e2e8f0"),
             )
             st.plotly_chart(_fig_perf, use_container_width=True, config={"displayModeBar": False})
-            st.caption(f"Each line is a pick's price change since 3 months ago (all start at 0%). "
+            st.caption(f"Each line is a pick's price change over the last {_win_words} (all start at 0%). "
                        f"The **emerald** line is the strongest performer, **indigo** is runner-up, grey is the rest. "
-                       f"Past performance doesn't guarantee future results — a stock that already ran up may have less room left.")
+                       f"Try a longer window to tell a durable trend from a recent spike — past performance "
+                       f"doesn't guarantee future results, and a stock that already ran up may have less room left.")
 
         _wl_all_sa = load_watchlist()
         with st.expander(f"👁 Your watchlist ({len(_wl_all_sa)} stocks the AI scores each run)"):
