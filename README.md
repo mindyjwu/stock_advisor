@@ -9,6 +9,21 @@ and traces the supply chains of your best holdings to find niche picks.
 > heuristics based on common investing conventions — they have not been backtested,
 > and AI models can be wrong. Always do your own research before placing real trades.
 
+## Tech stack
+
+| Layer | Tech |
+|---|---|
+| Core app | Python, [Streamlit](https://streamlit.io) |
+| Market data | [yfinance](https://github.com/ranaroussi/yfinance) |
+| AI scoring | [Anthropic Claude](https://www.anthropic.com) (Sonnet / Opus / Haiku) |
+| Storage | SQLite by default, optional Postgres (`DATABASE_URL`) |
+| Optional API + web frontend | [FastAPI](https://fastapi.tiangolo.com) (`api/`) + [Next.js](https://nextjs.org)/TypeScript (`web/`) |
+
+The Streamlit app (`app/dashboard.py`) is the primary, fully-featured product —
+everything in **Features** below lives there. `api/` and `web/` are an optional
+second frontend for the community/social features only (see
+[Community web app](#community-web-app-optional)).
+
 ## Features
 
 - **💰 Invest My Cash** — enter a deposit amount, pick a risk style (Cautious /
@@ -65,6 +80,45 @@ Then open http://localhost:8501 and **create your account**.
 > database history). Create your own account before sharing the app with others.
 > Later accounts start fresh with a small example watchlist.
 
+## Screens
+
+- **Dashboard** — portfolio KPIs, an equity-curve chart, your logged buy/pass
+  decisions, and the performance report card.
+- **Stock Advisor** — your watchlist, scored and ranked, with the Invest My
+  Cash planner.
+- **Scan & Alerts** — the S&P 500 market scan, sell-signal review for your
+  holdings, and recent alerts.
+- **Community** — opt-in profiles, a verified-returns leaderboard, follow
+  feed, per-ticker discussion threads, and shared watchlists.
+- **Lists & History** — saved picks and full suggestion history.
+- **How It Works** — the scoring rulebook in plain English, plus per-user
+  factor-weight controls.
+- **Settings** — API key, broker CSV/PDF import, watchlist/holdings editing.
+
+## Community web app (optional)
+
+The social/community features also have a second, standalone frontend: a
+[FastAPI](api/) backend and a [Next.js](web/) web app, talking to the same
+accounts and database as the Streamlit app. This is optional — the Streamlit
+app is fully self-contained — but useful if you want a lighter-weight,
+browser-native UI for the community surface (feed, leaderboard, threads,
+shared watchlists) without the rest of the analysis dashboard.
+
+```bash
+# Terminal 1 — API (from the repo root, after installing requirements.txt)
+pip install -r api/requirements.txt
+uvicorn api.main:app --reload --port 8000
+
+# Terminal 2 — web app
+cd web
+npm install
+cp .env.local.example .env.local
+npm run dev   # http://localhost:3000
+```
+
+See [`api/README.md`](api/README.md) and [`web/README.md`](web/README.md) for
+endpoints, config, and screen-by-screen details.
+
 ## How the recommendation engine works
 
 ```
@@ -118,6 +172,12 @@ data/
 db/
   store.py          SQLite: suggestions, picks, alerts, scans (per user)
   users.py          Accounts + PBKDF2 password auth
+  community.py      Profiles, follows, posts, shared watchlists, moderation
+  connection.py     Dual-backend (SQLite / Postgres) connection layer
+api/
+  main.py           FastAPI backend — REST API over the same db/data layer
+web/
+  app/              Next.js (App Router + TypeScript) community frontend
 ```
 
 ## Configuration notes
@@ -134,3 +194,10 @@ db/
   machine with a persistent disk (a small VPS or an always-on Mac). Platforms with
   ephemeral filesystems (e.g. Streamlit Community Cloud) will wipe accounts and
   portfolios on every restart.
+
+## Roadmap / design notes
+
+[`ENHANCEMENTS.md`](ENHANCEMENTS.md) is the original engineering review this
+project was built against — customization, trackability, accessibility,
+secure data handling, multi-user login, and the social community — with a
+sequencing table showing what's shipped vs. still open.
