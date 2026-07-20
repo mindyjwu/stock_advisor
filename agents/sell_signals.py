@@ -64,6 +64,31 @@ def _order_plan(verdict, price, flags):
     return None
 
 
+_REC_LABEL = {
+    "strong_buy": "Strong Buy", "buy": "Buy", "outperform": "Buy",
+    "hold": "Hold", "neutral": "Hold",
+    "underperform": "Sell", "sell": "Sell", "strong_sell": "Strong Sell",
+}
+
+
+def _analyst_view(info, price):
+    """Wall Street consensus from the data feed, so the user can compare our
+    position-management call against the analysts' company rating."""
+    key = (info.get("recommendationKey") or "").lower()
+    n = _f(info.get("numberOfAnalystOpinions"))
+    target = _f(info.get("targetMeanPrice"))
+    if key in ("", "none") and not n and not target:
+        return None
+    upside = round((target / price - 1) * 100, 1) if (target and price and price > 0) else None
+    return {
+        "rating": _REC_LABEL.get(key, key.replace("_", " ").title() or None),
+        "mean": _f(info.get("recommendationMean")),   # 1=Strong Buy … 5=Strong Sell
+        "n_analysts": int(n) if n else None,
+        "target": round(target, 2) if target else None,
+        "target_upside_pct": upside,
+    }
+
+
 def _stop_loss_price(price, sma50):
     """A protective stop for holds: the higher of ~10% below price or the
     50-day average (a common 'the trend has broken' line), rounded."""
@@ -270,6 +295,7 @@ def evaluate_sell(position: dict, info: dict = None, price_history=None,
         "unrealized_gl_dollar": round(unrealized_gl_dollar, 2) if unrealized_gl_dollar is not None else None,
         "proceeds_if_sold": proceeds_if_sold,
         "realized_if_sold": realized_if_sold,
+        "analyst": _analyst_view(info, price),
         "suggested_sell_qty": suggested,
         "flags": flags,
         "order_type": order["order_type"] if order else None,

@@ -1473,7 +1473,28 @@ elif page == "Stock Advisor":
     # ══ Manage what you own: sell / trim / hold / add ═════════════════════════
     st.markdown('<div class="section-header">🔀 Manage your holdings — sell, hold, or buy more</div>', unsafe_allow_html=True)
     st.caption("A review of the stocks you own: when to take profit or cut losses (with a suggested "
-               "price and order type), what's fine to hold, and which winners are worth adding to.")
+               "price and order type), what's fine to hold, and which winners are worth adding to. "
+               "Each stock also shows Wall Street's consensus rating so you can compare.")
+    with st.expander("🤔 Why do we sometimes say 'Sell' when analysts say 'Buy'?"):
+        st.markdown("""
+**They're answering a different question than we are.**
+
+- **Analysts rate the _company_** — "is this a good business to own over the next 12 months?"
+  Their ratings also skew optimistic: across Wall Street, *Buy/Hold/Sell* splits are roughly
+  55% / 40% / 5%. Genuine "Sell" ratings are rare, partly because banks want to keep
+  relationships with the companies they cover.
+- **We manage _your position_** — "given what *you* paid and what the chart is doing right now,
+  is this the moment to take some profit or cut a loss?" A **Sell** here often means *"you're up
+  a lot and the trend is weakening — consider locking in gains,"* **not** *"this is a bad company."*
+  A stock can be a great business (analyst Buy) and still be a smart place to take profit after a
+  big run.
+
+**So the two views aren't really in conflict** — read them together. When our call and Wall
+Street's line up, that's a strong signal. When they diverge, the 🧠 *second opinion* button reads
+the news to help you judge which fits your situation. We are **not** more informed than 40 analysts
+on the business itself — treat our call as risk/position management, and their rating as the
+long-term company view.
+""")
     _sell_positions = load_holdings().get("positions", [])
     if not _sell_positions:
         st.info("No holdings to review yet — import your portfolio in **Settings**.")
@@ -1577,6 +1598,24 @@ elif page == "Stock Advisor":
                     for _r in s["reasons"][:4]:
                         st.markdown(f"<div style='font-size:.8rem;color:#475569'>• {_r}</div>",
                                     unsafe_allow_html=True)
+                    # Wall Street consensus — reference point next to our call
+                    _an = s.get("analyst")
+                    if _an and _an.get("rating"):
+                        _ar = _an["rating"]
+                        _ar_col = {"Strong Buy": "#15803d", "Buy": "#16a34a", "Hold": "#b45309",
+                                   "Sell": "#dc2626", "Strong Sell": "#b91c1c"}.get(_ar, "#64748b")
+                        _tgt = ""
+                        if _an.get("target"):
+                            _u = _an.get("target_upside_pct")
+                            _utxt = (f", {'+' if (_u or 0) >= 0 else ''}{_u:.0f}% vs today" if _u is not None else "")
+                            _tgt = f" · avg target &#36;{_an['target']:,.2f}{_utxt}"
+                        _na = f" ({_an['n_analysts']} analysts)" if _an.get("n_analysts") else ""
+                        _diff = _ar in ("Buy", "Strong Buy") and s["verdict"] in ("Sell", "Trim")
+                        st.markdown(
+                            f"<div style='font-size:.78rem;color:#475569;margin-top:.15rem'>"
+                            f"📊 <b>Wall Street{_na}:</b> <span style='color:{_ar_col};font-weight:700'>{_ar}</span>{_tgt}"
+                            + ("  <span style='color:#94a3b8'>— they rate the company; we're managing your position</span>" if _diff else "")
+                            + "</div>", unsafe_allow_html=True)
                     # AI news-aware second opinion (extreme sells only)
                     _rev = _sreview.get(s["symbol"])
                     if _rev:
