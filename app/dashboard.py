@@ -40,6 +40,7 @@ from db.store import (
 from agents.screener import STYLE_META
 from scripts.run_analysis import run_analysis as _run_analysis
 from agents.allocator import build_plan, PROFILES
+from agents.sell_signals import evaluate_holdings as _evaluate_holdings
 from app.auth import require_login, logout
 import db.community as _community
 from app.config import (
@@ -81,6 +82,27 @@ st.markdown("""
     border-right: 1px solid #171c2a !important;
   }
   section[data-testid="stSidebar"] * { color: #cbd5e1 !important; }
+
+  /* ── Collapse control: always-visible pill inside the sidebar header ── */
+  [data-testid="stSidebarCollapseButton"] { opacity: 1 !important; visibility: visible !important; }
+  [data-testid="stSidebarCollapseButton"] button {
+    background: #1e2438 !important; color: #a5b4fc !important;
+    border: 1px solid #2a3350 !important; border-radius: 8px !important;
+    opacity: 1 !important;
+  }
+  [data-testid="stSidebarCollapseButton"] button:hover {
+    background: #312e81 !important; color: #c7d2fe !important;
+  }
+  /* ── Expand control: prominent floating button when collapsed ── */
+  [data-testid="stSidebarCollapsedControl"] button,
+  [data-testid="stExpandSidebarButton"] button {
+    background: linear-gradient(135deg,#6366f1,#8b5cf6) !important;
+    color: #fff !important; border: none !important;
+    border-radius: 10px !important;
+    box-shadow: 0 2px 10px rgba(99,102,241,.4) !important;
+  }
+  [data-testid="stSidebarCollapsedControl"] button:hover,
+  [data-testid="stExpandSidebarButton"] button:hover { opacity: .88 !important; }
   section[data-testid="stSidebar"] .stRadio { display: none !important; }
   section[data-testid="stSidebar"] .stButton > button {
     background: linear-gradient(135deg,#6366f1,#8b5cf6) !important;
@@ -1446,6 +1468,79 @@ if page == "Dashboard":  # ── includes Portfolio ──
 elif page == "Stock Advisor":
     st.markdown("# 🎯 Stock Advisor")
     st.markdown("Top-down: the market's mood → the AI's best picks you don't own yet → a concrete plan for your cash.")
+
+    # ══ Manage what you own: sell / trim / hold / add ═════════════════════════
+    st.markdown('<div class="section-header">🔀 Manage your holdings — sell, hold, or buy more</div>', unsafe_allow_html=True)
+    st.caption("A review of the stocks you own: when to take profit or cut losses (with a suggested "
+               "price and order type), what's fine to hold, and which winners are worth adding to.")
+    _sell_positions = load_holdings().get("positions", [])
+    if not _sell_positions:
+        st.info("No holdings to review yet — import your portfolio in **Settings**.")
+    else:
+        if st.button("🔀  Review my holdings", key="run_sell_signals"):
+            with st.spinner(f"Reviewing your {len(_sell_positions)} holdings…"):
+                _ai_scores = {r["symbol"]: r["score"] for r in get_latest_run_suggestions()}
+                st.session_state["sell_signals"] = _evaluate_holdings(UID, _ai_scores)
+        _sigs = st.session_state.get("sell_signals")
+        if _sigs is None:
+            st.caption("Click above to review each holding. Recommendations sharpen after you've run "
+                       "an analysis (adds the AI thesis and buy-more signals).")
+        else:
+            _V_COLOR = {"Sell": "#dc2626", "Trim": "#b45309", "Hold": "#15803d", "Add": "#4f46e5"}
+            _V_WORD  = {"Sell": "cut it", "Trim": "take some profit", "Hold": "sit tight", "Add": "buy more"}
+            _n_sell = sum(1 for s in _sigs if s["verdict"] in ("Sell", "Trim"))
+            _n_add  = sum(1 for s in _sigs if s["verdict"] == "Add")
+            _summary = []
+            if _n_sell: _summary.append(f"<b>{_n_sell}</b> to sell/trim")
+            if _n_add:  _summary.append(f"<b>{_n_add}</b> worth adding to")
+            _summary.append(f"the rest fine to hold")
+            st.markdown(f"<div style='font-size:.85rem;color:#334155;margin:.2rem 0 .6rem'>"
+                        f"{' · '.join(_summary)}.</div>", unsafe_allow_html=True)
+            # Order the list so action items (sell/trim, then add) float to the top
+            _order = {"Sell": 0, "Trim": 1, "Add": 2, "Hold": 3}
+            for s in sorted(_sigs, key=lambda x: (_order.get(x["verdict"], 4), -x["urgency"])):
+                _col = _V_COLOR[s["verdict"]]
+                _gl = s.get("gl_pct")
+                _glstr = (f"<span style=\"color:{'#15803d' if _gl >= 0 else '#dc2626'};font-weight:600\">"
+                          f"{'+' if _gl >= 0 else ''}{_gl:.1f}%</span>") if _gl is not None else "—"
+                _bar = min(max(int(s["urgency"]), 0), 100)
+                sc1, sc2, sc3 = st.columns([1.4, 1.2, 3.4])
+                with sc1:
+                    st.markdown(f"**{s['symbol']}**  \n"
+                                f"<small style='color:#64748b'>{s['quantity']:g} sh · {_glstr}</small>",
+                                unsafe_allow_html=True)
+                with sc2:
+                    st.markdown(
+                        f"<span style='background:{_col};color:#fff;border-radius:99px;"
+                        f"padding:2px 12px;font-weight:700;font-size:.8rem'>{s['verdict']}</span>"
+                        f"<div style='color:#94a3b8;font-size:.68rem;margin-top:.3rem'>{_V_WORD[s['verdict']]}</div>"
+                        + (f"<div style='color:#94a3b8;font-size:.68rem'>urgency {int(s['urgency'])}/100</div>"
+                           f"<div class='score-bar-bg' style='margin-top:2px'>"
+                           f"<div class='score-bar-fill' style='width:{_bar}%;background:{_col}'></div></div>"
+                           if s["verdict"] in ("Sell", "Trim") else ""),
+                        unsafe_allow_html=True)
+                with sc3:
+                    # Concrete order plan: how many shares + suggested price + order type
+                    if s["verdict"] in ("Sell", "Trim") and s.get("suggested_sell_qty"):
+                        st.markdown(f"<div style='font-size:.82rem;color:#0f172a;font-weight:700'>"
+                                    f"Suggested: sell {s['suggested_sell_qty']:g} of {s['quantity']:g} share(s)</div>",
+                                    unsafe_allow_html=True)
+                    if s.get("order_advice"):
+                        _icon = "🟢" if s["verdict"] == "Add" else "🎫"
+                        st.markdown(f"<div style='font-size:.8rem;color:#334155;background:#f8fafc;"
+                                    f"border-left:3px solid {_col};border-radius:6px;padding:.35rem .6rem;margin:.2rem 0'>"
+                                    f"{_icon} {s['order_advice']}</div>", unsafe_allow_html=True)
+                    for _r in s["reasons"][:4]:
+                        st.markdown(f"<div style='font-size:.8rem;color:#475569'>• {_r}</div>",
+                                    unsafe_allow_html=True)
+                    if s["verdict"] == "Hold" and s.get("stop_loss_price"):
+                        st.markdown(f"<div style='font-size:.75rem;color:#94a3b8;margin-top:.2rem'>"
+                                    f"🛡️ Protective stop-loss idea: exit if it falls to "
+                                    f"~${s['stop_loss_price']:,.2f}</div>", unsafe_allow_html=True)
+                st.divider()
+            st.caption("Suggested prices are starting points, not guarantees. A **limit** order fills only at "
+                       "your price or better; a **market** order fills immediately at whatever's available.")
+    st.markdown("<br>", unsafe_allow_html=True)
 
     # ── Get scored results: this session first, then the last saved run ──────
     results   = st.session_state.get("results")

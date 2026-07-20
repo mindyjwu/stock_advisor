@@ -335,6 +335,16 @@ def suggestions(user: dict = Depends(get_current_user)):
     return store.get_latest_run_suggestions(user["id"])
 
 
+@app.get("/api/holdings/sell-signals")
+def sell_signals(user: dict = Depends(get_current_user)):
+    """For each held stock, whether to Hold / Trim / Sell and why. Combines the
+    latest AI scores (if any) with position-aware signals (stop-loss, profit
+    taking, target reached)."""
+    from agents.sell_signals import evaluate_holdings
+    ai_scores = {r["symbol"]: r["score"] for r in store.get_latest_run_suggestions(user["id"])}
+    return evaluate_holdings(user["id"], ai_scores)
+
+
 @app.get("/api/performance/snapshots")
 def snapshots(user: dict = Depends(get_current_user)):
     return store.get_portfolio_snapshots(user["id"])

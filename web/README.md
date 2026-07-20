@@ -33,7 +33,8 @@ npm run build && npm start
 - `app/profile` — edit bio/avatar and the two privacy opt-ins, follower/following
   counts, a member directory with follow buttons, and your blocked list.
 - `app/portfolio` — your holdings, an equity-curve chart (inline SVG, no chart
-  dep), latest AI suggestions, and your logged decisions. Private to you.
+  dep), a **When to Sell** review (Hold/Trim/Sell per holding with reasons),
+  latest AI suggestions, and your logged decisions. Private to you.
 - `app/components/Nav.tsx` — shared top navigation.
 - `app/components/PostCard.tsx` — post card with like plus report/block on
   others' posts and delete on your own.
