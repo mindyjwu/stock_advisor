@@ -505,6 +505,47 @@ def _explain_stats(stats):
         out.append(f"**Gets you paid:** ~{dy_pct:.1f}% a year in dividends just for holding it.")
     return out
 
+def _split_reasons(reasons):
+    """Sort a pick's reasons into (health, trend, news) buckets by keyword."""
+    fund = [x for x in reasons if any(k in x.lower() for k in
+            ("p/e","peg","revenue","margin","debt","valuation","profit","growth","capital","forward"))]
+    tech = [x for x in reasons if any(k in x.lower() for k in
+            ("rsi","macd","sma","volume","trend","crossover","oversold","overbought","high","jumpy","steady","average","momentum"))]
+    news = [x for x in reasons if x not in fund and x not in tech]
+    return fund, tech, news
+
+def _factor_label(kind, score):
+    """A plain-English rating word (the benchmark) + colour for a 0-100 factor."""
+    bands = {
+        "health": ["Shaky", "So-so", "Healthy", "Very healthy"],
+        "trend":  ["Downtrend", "Sideways", "Trending up", "Strong uptrend"],
+        "news":   ["Negative", "Neutral", "Positive", "Very positive"],
+    }[kind]
+    colors = ["#dc2626", "#b45309", "#16a34a", "#15803d"]
+    i = 3 if score >= 75 else 2 if score >= 60 else 1 if score >= 45 else 0
+    return bands[i], colors[i]
+
+def _factor_readout_html(r):
+    """Full-width 3-up readout: each factor as icon · rating word (score) · top reasons,
+    so the number has a benchmark AND a why behind it — no expander needed."""
+    fund_r, tech_r, news_r = _split_reasons(r.get("reasons", []))
+    blocks = []
+    for kind, icon, name, score, rs, default in (
+        ("health", "🏥", "Company Health", r.get("fund_score", 50), fund_r, "figures look average"),
+        ("trend",  "📈", "Price Trend",    r.get("tech_score", 50), tech_r, "no strong trend either way"),
+        ("news",   "📰", "News Mood",      r.get("sent_score", 50), news_r, "no notable headlines"),
+    ):
+        word, col = _factor_label(kind, _safe_float(score, 50))
+        why = " · ".join(rs[:2]) if rs else default
+        blocks.append(
+            f"<div style='flex:1;min-width:150px'>"
+            f"<div style='font-size:.78rem;font-weight:700;color:#334155'>{icon} {name}: "
+            f"<span style='color:{col}'>{word}</span> "
+            f"<span style='color:#94a3b8;font-weight:400'>({_safe_float(score,50):.0f}/100)</span></div>"
+            f"<div style='font-size:.75rem;color:#64748b;margin-top:.1rem'>{html.escape(why)}</div></div>")
+    return ("<div style='display:flex;gap:1.2rem;flex-wrap:wrap;background:#f8fafc;border:1px solid #eef1f7;"
+            "border-radius:10px;padding:.6rem .9rem;margin:.1rem 0 .3rem'>" + "".join(blocks) + "</div>")
+
 def _entry_reasons(r):
     """1-2 plain-English reasons about ENTRY TIMING — is now a decent moment
     to buy, or would you be chasing an all-time high?"""
@@ -1707,6 +1748,14 @@ long-term company view.
     st.caption(f"Built {data_note}. Pool: {_pool_note}. "
                "Stocks you already hold are on the Dashboard's checkup instead. "
                "Curious how scoring works? See 📖 How It Works.")
+    # Benchmark legend so every score has a yardstick
+    if _picks_sa:
+        st.markdown(
+            "<div style='font-size:.75rem;color:#94a3b8;margin:-.2rem 0 .5rem'>"
+            "Each stock gets three checks, each rated out of 100. Benchmark: "
+            "<b style='color:#15803d'>75+ strong</b> · <b style='color:#16a34a'>60–74 good</b> · "
+            "<b style='color:#b45309'>45–59 fair</b> · <b style='color:#dc2626'>under 45 weak</b>. "
+            "Each shows the reason behind it.</div>", unsafe_allow_html=True)
 
     if not _picks_sa:
         st.info("Nothing you don't already own is scoring Buy or better right now — "
@@ -1811,6 +1860,9 @@ long-term company view.
         if _entry_row:
             st.markdown(f"<div style='font-size:.8rem;color:#334155;margin:0 0 .3rem 0'>"
                         f"<b>🎯 Why now:</b> {' · '.join(_entry_row)}</div>", unsafe_allow_html=True)
+
+        # The 3 checks with a plain-English rating word + the reason behind each
+        st.markdown(_factor_readout_html(r), unsafe_allow_html=True)
 
         # Full-width analysis — never squeezed into a narrow column
         with st.expander(f"🔎 Full analysis — {r['symbol']}"):
