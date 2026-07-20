@@ -1550,6 +1550,22 @@ elif page == "Stock Advisor":
                         st.markdown(f"<div style='font-size:.82rem;color:#0f172a;font-weight:700'>"
                                     f"Suggested: sell {s['suggested_sell_qty']:g} of {s['quantity']:g} share(s)</div>",
                                     unsafe_allow_html=True)
+                        # What you'd actually walk away with (or lose)
+                        _rz = s.get("realized_if_sold")
+                        _pr = s.get("proceeds_if_sold")
+                        if _rz is not None and _pr is not None:
+                            _win = _rz >= 0
+                            _mc = "#15803d" if _win else "#dc2626"
+                            _verb = "lock in a profit of" if _win else "realize a loss of"
+                            _line = (f"If you sell {s['suggested_sell_qty']:g} share(s) at ~&#36;{(s.get('limit_price') or s['current_price']):,.2f}: "
+                                     f"you'd receive about <b>&#36;{_pr:,.0f}</b> and {_verb} "
+                                     f"<b style='color:{_mc}'>{'+' if _win else '−'}&#36;{abs(_rz):,.0f}</b>.")
+                            _rem = s["quantity"] - s["suggested_sell_qty"]
+                            if _rem > 0:
+                                _line += f" You'd still hold {_rem:g} share(s)."
+                            st.markdown(f"<div style='font-size:.8rem;color:#334155;background:{'#f0fdf4' if _win else '#fef2f2'};"
+                                        f"border-left:3px solid {_mc};border-radius:6px;padding:.35rem .6rem;margin:.2rem 0'>"
+                                        f"💵 {_line}</div>", unsafe_allow_html=True)
                     if s.get("order_advice"):
                         _icon = "🟢" if s["verdict"] == "Add" else "🎫"
                         # Two $ signs in one string get parsed as LaTeX and eat the
@@ -1581,7 +1597,9 @@ elif page == "Stock Advisor":
                                     f"~${s['stop_loss_price']:,.2f}</div>", unsafe_allow_html=True)
                 st.divider()
             st.caption("Suggested prices are starting points, not guarantees. A **limit** order fills only at "
-                       "your price or better; a **market** order fills immediately at whatever's available.")
+                       "your price or better; a **market** order fills immediately at whatever's available. "
+                       "Profit/loss figures are **before taxes and fees** — realized gains on stocks held under "
+                       "a year are usually taxed at a higher rate, so your after-tax number will be lower.")
     st.markdown("<br>", unsafe_allow_html=True)
 
     # ── Get scored results: this session first, then the last saved run ──────

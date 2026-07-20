@@ -235,6 +235,27 @@ def evaluate_sell(position: dict, info: dict = None, price_history=None,
     order = _order_plan(verdict, price, flags)
     stop = _stop_loss_price(price, sma50_ref)
 
+    # ── Money math: what you'd actually pocket / lose ────────────────────────
+    # Total cost of the whole position, from the broker if available.
+    position_cost = _f(position.get("total_cost"))
+    if position_cost is None and cost_basis is not None:
+        position_cost = cost_basis * qty
+    position_value = _f(position.get("current_value"))
+    if position_value is None and price is not None:
+        position_value = price * qty
+    unrealized_gl_dollar = _f(position.get("unrealized_gl"))
+    if unrealized_gl_dollar is None and position_value is not None and position_cost is not None:
+        unrealized_gl_dollar = position_value - position_cost
+
+    # Realized profit/loss if they follow the sell suggestion, at the sell
+    # price we're recommending (limit price), for the suggested share count.
+    realized_if_sold = proceeds_if_sold = None
+    if verdict in ("Sell", "Trim") and suggested and cost_basis is not None:
+        _sell_px = (order["limit_price"] if order else None) or price
+        if _sell_px:
+            proceeds_if_sold = round(_sell_px * suggested, 2)
+            realized_if_sold = round((_sell_px - cost_basis) * suggested, 2)
+
     return {
         "symbol": symbol,
         "verdict": verdict,
@@ -243,6 +264,12 @@ def evaluate_sell(position: dict, info: dict = None, price_history=None,
         "gl_pct": round(gl_pct, 1) if gl_pct is not None else None,
         "current_price": round(price, 2) if price else None,
         "quantity": qty,
+        "cost_basis": round(cost_basis, 2) if cost_basis is not None else None,
+        "position_cost": round(position_cost, 2) if position_cost is not None else None,
+        "position_value": round(position_value, 2) if position_value is not None else None,
+        "unrealized_gl_dollar": round(unrealized_gl_dollar, 2) if unrealized_gl_dollar is not None else None,
+        "proceeds_if_sold": proceeds_if_sold,
+        "realized_if_sold": realized_if_sold,
         "suggested_sell_qty": suggested,
         "flags": flags,
         "order_type": order["order_type"] if order else None,
