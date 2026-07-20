@@ -2374,6 +2374,11 @@ elif page == "Scan & Alerts":
 
             _wl_syms_now  = {t["symbol"] for t in load_watchlist()}
             _saved_now    = {p["symbol"] for p in get_saved_picks()}
+            try:
+                from agents.blurbs import get_blurbs as _gb_scan
+                _scan_blurbs = _gb_scan([r["symbol"] for r in _shown[:15]])
+            except Exception:
+                _scan_blurbs = {}
 
             for _i, _r in enumerate(_shown[:15], 1):
                 _sc = _r.get("score", 0)
@@ -2393,6 +2398,10 @@ elif page == "Scan & Alerts":
                     for c in _r.get("style_chips", [])
                 )
                 _why = " · ".join((_r.get("reasons") or [])[:3]) or "Scored across all factors"
+                _blurb_scan = _scan_blurbs.get(_r["symbol"])
+                _blurb_html = (f'<div style="font-size:.78rem;color:#334155;margin-top:.35rem">'
+                               f'<b>🏢 What they do:</b> {html.escape(_blurb_scan).replace("$","&#36;")}</div>'
+                               if _blurb_scan else "")
                 _stats_r = _r.get("stats") or {}
                 _tooltip = "📊 Live stats — " + _r["symbol"] + "&#10;" + "&#10;".join(_stats_lines(_stats_r))
                 _cap_chip = ""
@@ -2421,6 +2430,7 @@ elif page == "Scan & Alerts":
                         f'<span style="font-size:.74rem;color:#94a3b8">Health {_r.get("fund_score", "—")} · Trend {_r.get("tech_score", "—")} · News {_r.get("sent_score", "—")}</span>'
                         f'<span style="font-size:.72rem;color:#c4b5fd">ℹ️ hover for live stats</span>'
                         f'</div>'
+                        f'{_blurb_html}'
                         f'<div style="font-size:.78rem;color:#64748b;margin-top:.35rem"><b style="color:#334155">Why:</b> {_why}</div>'
                         f'<div style="margin-top:.4rem;display:flex;gap:.4rem;flex-wrap:wrap">{"".join(_fit)}</div>'
                         f'</div>'
