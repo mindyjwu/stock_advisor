@@ -7,6 +7,7 @@ load_dotenv()
 
 import math
 import html
+import re
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
@@ -1527,9 +1528,12 @@ elif page == "Stock Advisor":
                                     unsafe_allow_html=True)
                     if s.get("order_advice"):
                         _icon = "🟢" if s["verdict"] == "Add" else "🎫"
+                        # Two $ signs in one string get parsed as LaTeX and eat the
+                        # price — escape $ to an HTML entity and convert **bold**
+                        _adv = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", s["order_advice"]).replace("$", "&#36;")
                         st.markdown(f"<div style='font-size:.8rem;color:#334155;background:#f8fafc;"
                                     f"border-left:3px solid {_col};border-radius:6px;padding:.35rem .6rem;margin:.2rem 0'>"
-                                    f"{_icon} {s['order_advice']}</div>", unsafe_allow_html=True)
+                                    f"{_icon} {_adv}</div>", unsafe_allow_html=True)
                     for _r in s["reasons"][:4]:
                         st.markdown(f"<div style='font-size:.8rem;color:#475569'>• {_r}</div>",
                                     unsafe_allow_html=True)
