@@ -1474,31 +1474,31 @@ if page == "Dashboard":  # ── includes Portfolio ──
             st.plotly_chart(fig_day, use_container_width=True, config={"displayModeBar": False})
 
     # ── Full holdings table ───────────────────────────────────────────────────
-    st.markdown('<div class="section-header">All Positions</div>', unsafe_allow_html=True)
-    display_df = df[["symbol","desc","sector","qty","cost_basis","cost_value","cur_value","gl_amt","gl_pct","day_pct"]].copy()
-    display_df.columns = ["Ticker","Description","Sector","Qty","Cost/sh ($)","Cost Total ($)","Market Value ($)","G/L ($)","G/L (%)","Day (%)"]
-    display_df = display_df.sort_values("Market Value ($)", ascending=False)
+    with st.expander(f"📋 All positions — full table ({len(df)} stocks)", expanded=False):
+        display_df = df[["symbol","desc","sector","qty","cost_basis","cost_value","cur_value","gl_amt","gl_pct","day_pct"]].copy()
+        display_df.columns = ["Ticker","Description","Sector","Qty","Cost/sh ($)","Cost Total ($)","Market Value ($)","G/L ($)","G/L (%)","Day (%)"]
+        display_df = display_df.sort_values("Market Value ($)", ascending=False)
 
-    def _color_val(val):
-        if isinstance(val, (int, float)):
-            if val > 0: return "color: #16a34a"
-            if val < 0: return "color: #ef4444"
-        return ""
+        def _color_val(val):
+            if isinstance(val, (int, float)):
+                if val > 0: return "color: #16a34a"
+                if val < 0: return "color: #ef4444"
+            return ""
 
-    styled = (display_df.style
-        .format({
-            "Qty": "{:g}",
-            "Cost/sh ($)": "${:,.2f}",
-            "Cost Total ($)": "${:,.0f}",
-            "Market Value ($)": "${:,.0f}",
-            "G/L ($)": "${:+,.0f}",
-            "G/L (%)": "{:+.1f}%",
-            "Day (%)": "{:+.2f}%",
-        })
-        .map(_color_val, subset=["G/L ($)","G/L (%)","Day (%)"])
-        .set_properties(**{"font-size": "12px"})
-    )
-    st.dataframe(styled, width="stretch", height=500)
+        styled = (display_df.style
+            .format({
+                "Qty": "{:g}",
+                "Cost/sh ($)": "${:,.2f}",
+                "Cost Total ($)": "${:,.0f}",
+                "Market Value ($)": "${:,.0f}",
+                "G/L ($)": "${:+,.0f}",
+                "G/L (%)": "{:+.1f}%",
+                "Day (%)": "{:+.2f}%",
+            })
+            .map(_color_val, subset=["G/L ($)","G/L (%)","Day (%)"])
+            .set_properties(**{"font-size": "12px"})
+        )
+        st.dataframe(styled, width="stretch", height=500)
 
     # ── Performance report card — filled at end of script, after its def ─────
     _perf_slot = st.container()
@@ -1585,7 +1585,7 @@ long-term company view.
 
             # Order the list so action items (sell/trim, then add) float to the top
             _order = {"Sell": 0, "Trim": 1, "Add": 2, "Hold": 3}
-            for s in sorted(_sigs, key=lambda x: (_order.get(x["verdict"], 4), -x["urgency"])):
+            def _render_holding(s):
                 _col = _V_COLOR[s["verdict"]]
                 _gl = s.get("gl_pct")
                 _glstr = (f"<span style=\"color:{'#15803d' if _gl >= 0 else '#dc2626'};font-weight:600\">"
@@ -1676,6 +1676,17 @@ long-term company view.
                                     f"🛡️ Protective stop-loss idea: exit if it falls to "
                                     f"~${s['stop_loss_price']:,.2f}</div>", unsafe_allow_html=True)
                 st.divider()
+
+            # Show what needs a decision; tuck the "fine to hold" majority away
+            _sorted_sigs = sorted(_sigs, key=lambda x: (_order.get(x["verdict"], 4), -x["urgency"]))
+            _act_items = [s for s in _sorted_sigs if s["verdict"] != "Hold"]
+            _hold_items = [s for s in _sorted_sigs if s["verdict"] == "Hold"]
+            for s in _act_items:
+                _render_holding(s)
+            if _hold_items:
+                with st.expander(f"😴 {len(_hold_items)} holdings that are fine to hold — no action needed"):
+                    for s in _hold_items:
+                        _render_holding(s)
             st.caption("Suggested prices are starting points, not guarantees. A **limit** order fills only at "
                        "your price or better; a **market** order fills immediately at whatever's available. "
                        "Profit/loss figures are **before taxes and fees** — realized gains on stocks held under "
@@ -1773,102 +1784,65 @@ long-term company view.
     except Exception:
         _blurbs_sa = {}
 
-    for r in _picks_sa[:8]:
-        action = r["action"]
-        score  = r["score"]
-        color  = _score_color(score)
-        c1, c2, c3, c4, c5, c6 = st.columns([1.3, 1.1, 1.3, 2.3, 1.5, 0.8])
-        with c1:
-            _day_chg = r.get("day_change_pct")
-            _chg_str = ""
-            if _day_chg is not None:
-                _arrow = "▲" if _day_chg >= 0 else "▼"
-                _chg_c = "#16a34a" if _day_chg >= 0 else "#dc2626"
-                _chg_str = f"<span style='color:{_chg_c};font-size:.75rem'>{_arrow} {abs(_day_chg):.1f}% today</span>"
-            _src_chip = ("<br><span style='background:#e0f2fe;color:#0369a1;border-radius:99px;padding:1px 8px;"
-                         "font-size:.68rem;font-weight:600'>🔭 scan find</span>") if r.get("_from_scan") else ""
-            st.markdown(f"**{r['symbol']}**  \n<small style='color:#8a94a6'>{r.get('industry','')}</small>  \n{_chg_str}{_src_chip}",
-                        unsafe_allow_html=True)
-        with c2:
-            st.markdown(_badge(action), unsafe_allow_html=True)
-            st.markdown(f"<small style='color:#8a94a6'>{PLAIN_VERDICT.get(action, '')}</small>", unsafe_allow_html=True)
-            _cf = r.get("confidence")
-            if _cf == "aligned":
-                st.markdown("<small style='color:#15803d;font-weight:600'>✅ models agree</small>", unsafe_allow_html=True)
-            elif _cf == "mixed":
-                st.markdown("<small style='color:#b45309;font-weight:600'>⚠️ mixed signals</small>", unsafe_allow_html=True)
-        with c3:
-            st.markdown(f"<span style='font-weight:800;color:{color};font-size:1.2rem'>{score:.0f}</span>"
-                        f"<span style='color:#9ca3af;font-size:.8rem'> /100</span>", unsafe_allow_html=True)
-            st.markdown(_score_bar(score, color), unsafe_allow_html=True)
-            st.markdown(f"<small style='color:#9ca3af'>Health {r['fund_score']:.0f} · Trend {r['tech_score']:.0f} · News {r['sent_score']:.0f}</small>",
-                        unsafe_allow_html=True)
-        with c4:
+    _RATING_COLORS = {
+        "Shaky": "#dc2626", "So-so": "#b45309", "Healthy": "#16a34a", "Very healthy": "#15803d",
+        "Downtrend": "#dc2626", "Sideways": "#b45309", "Trending up": "#16a34a", "Strong uptrend": "#15803d",
+        "Negative": "#dc2626", "Neutral": "#b45309", "Positive": "#16a34a", "Very positive": "#15803d",
+    }
+
+    def _render_pick_detail(r):
+        """Full breakdown for one selected pick — depth on demand."""
+        _act = r["action"]
+        _hdr = (f"<span style='font-size:1.15rem;font-weight:800;color:#0f172a'>{r['symbol']}</span> "
+                f"{_badge(_act)} <span style='color:{_score_color(r['score'])};font-weight:700'>"
+                f"{r['score']:.0f}/100 · {PLAIN_VERDICT.get(_act,'')}</span>")
+        _cf = r.get("confidence")
+        if _cf == "aligned": _hdr += " <span style='color:#15803d;font-size:.8rem;font-weight:600'>✅ models agree</span>"
+        elif _cf == "mixed": _hdr += " <span style='color:#b45309;font-size:.8rem;font-weight:600'>⚠️ mixed signals</span>"
+        st.markdown(_hdr, unsafe_allow_html=True)
+
+        _dc, _sc = st.columns([2, 1])
+        with _dc:
+            _blurb_row = _blurbs_sa.get(r["symbol"])
+            if _blurb_row:
+                st.markdown(f"<div style='font-size:.82rem;color:#334155;margin:.2rem 0'>"
+                            f"<b>🏢 What they do:</b> {_blurb_row}</div>", unsafe_allow_html=True)
+            _entry_row = _entry_reasons(r)
+            if _entry_row:
+                st.markdown(f"<div style='font-size:.82rem;color:#334155;margin:0 0 .3rem'>"
+                            f"<b>🎯 Why now:</b> {' · '.join(_entry_row)}</div>", unsafe_allow_html=True)
+            st.markdown(_factor_readout_html(r), unsafe_allow_html=True)
+        with _sc:
             _spark = _sparkline(r["symbol"], with_axes=True)
             if _spark:
                 st.plotly_chart(_spark, use_container_width=True, config={"displayModeBar": False},
                                 key=f"sa_spark_{r['symbol']}")
-        with c5:
-            # Single-line pure-HTML block: bare $ signs in markdown text get
-            # parsed as LaTeX math and mangle the whole column
-            _qty_line = (f'<div style="font-size:.75rem;color:#8a94a6">{r["suggested_quantity"]:g} share(s) suggested</div>'
-                         if _safe_float(r.get("suggested_quantity")) > 0
-                         else '<div style="font-size:.75rem;color:#8a94a6">size it in the plan below</div>')
-            st.markdown(
-                f'<div style="font-weight:800;color:#0f172a">${r["current_price"]} '
-                f'<span style="font-weight:400;font-size:.75rem;color:#8a94a6">now</span></div>'
-                f'<div style="color:#16a34a;font-weight:700">${r["target_price"]} '
-                f'<span style="font-weight:400;font-size:.75rem">target (+{r["upside_pct"]}%)</span></div>'
-                f'{_qty_line}',
-                unsafe_allow_html=True)
-        with c6:
-            _saved_sa = r["symbol"] in saved_symbols_sa
-            if st.button("★" if _saved_sa else "☆ Save", key=f"sa_save_{r['symbol']}"):
-                if _saved_sa:
-                    remove_pick(r["symbol"])
-                else:
-                    save_pick(r["symbol"], r.get("industry", "Misc"))
+
+        # Action buttons
+        _b1, _b2, _b3, _b4 = st.columns([1, 1, 1, 3])
+        _saved_sa = r["symbol"] in saved_symbols_sa
+        _dec_sa = _dec_map_sa.get(r["symbol"])
+        with _b1:
+            if st.button("★ Saved" if _saved_sa else "☆ Save", key=f"sa_save_{r['symbol']}"):
+                remove_pick(r["symbol"]) if _saved_sa else save_pick(r["symbol"], r.get("industry", "Misc"))
                 st.rerun()
-            # Track what you actually did — feeds the Performance page
-            _dec_sa = _dec_map_sa.get(r["symbol"])
-            if st.button("✅ Bought" if _dec_sa == "bought" else "Bought",
-                         key=f"sa_bought_{r['symbol']}",
+        with _b2:
+            if st.button("✅ Bought" if _dec_sa == "bought" else "Bought", key=f"sa_bought_{r['symbol']}",
                          help="Mark that you bought this — tracks your real results"):
-                if _dec_sa == "bought":
-                    remove_decision(r["symbol"])
-                else:
-                    record_decision(r["symbol"], "bought", action=r.get("action"),
-                                    price=_safe_float(r.get("current_price")),
-                                    score=_safe_float(r.get("score")))
+                remove_decision(r["symbol"]) if _dec_sa == "bought" else record_decision(
+                    r["symbol"], "bought", action=_act, price=_safe_float(r.get("current_price")), score=_safe_float(r.get("score")))
                 st.rerun()
-            if st.button("🚫 Passed" if _dec_sa == "passed" else "Passed",
-                         key=f"sa_passed_{r['symbol']}",
+        with _b3:
+            if st.button("🚫 Passed" if _dec_sa == "passed" else "Passed", key=f"sa_passed_{r['symbol']}",
                          help="Mark that you skipped this one"):
-                if _dec_sa == "passed":
-                    remove_decision(r["symbol"])
-                else:
-                    record_decision(r["symbol"], "passed", action=r.get("action"),
-                                    price=_safe_float(r.get("current_price")),
-                                    score=_safe_float(r.get("score")))
+                remove_decision(r["symbol"]) if _dec_sa == "passed" else record_decision(
+                    r["symbol"], "passed", action=_act, price=_safe_float(r.get("current_price")), score=_safe_float(r.get("score")))
                 st.rerun()
 
-        _blurb_row = _blurbs_sa.get(r["symbol"])
-        if _blurb_row:
-            st.markdown(f"<div style='font-size:.8rem;color:#334155;margin:-.2rem 0 .3rem 0'>"
-                        f"<b>🏢 What they do:</b> {_blurb_row}</div>", unsafe_allow_html=True)
-        _entry_row = _entry_reasons(r)
-        if _entry_row:
-            st.markdown(f"<div style='font-size:.8rem;color:#334155;margin:0 0 .3rem 0'>"
-                        f"<b>🎯 Why now:</b> {' · '.join(_entry_row)}</div>", unsafe_allow_html=True)
-
-        # The 3 checks with a plain-English rating word + the reason behind each
-        st.markdown(_factor_readout_html(r), unsafe_allow_html=True)
-
-        # Full-width analysis — never squeezed into a narrow column
-        with st.expander(f"🔎 Full analysis — {r['symbol']}"):
-            # ── About the company: what it sells, who buys, how it competes ──
+        # Deepest detail stays one more click away
+        with st.expander("🔎 Go deeper — company profile, all reasons, the numbers, news"):
             _prof = _profiles_sa.get(r["symbol"])
-            if _prof:
+            if _prof and _prof.get("narrative"):
                 _facts = []
                 if _prof.get("sector") or _prof.get("industry"):
                     _facts.append("· ".join(x for x in (_prof.get("sector"), _prof.get("industry")) if x))
@@ -1880,20 +1854,11 @@ long-term company view.
                 if _prof.get("website"):
                     _w = html.escape(_prof["website"])
                     _site = f" <a href='{_w}' target='_blank' style='color:#6366f1;font-size:.74rem'>website ↗</a>"
-                if _prof.get("narrative"):
-                    st.markdown(f"<div style='font-size:.72rem;font-weight:700;color:#6366f1;text-transform:uppercase;"
-                                f"letter-spacing:.06em'>🏢 About the company{_site}</div>{_facts_html}"
-                                f"<div style='font-size:.84rem;color:#334155;line-height:1.6;margin-bottom:.6rem'>"
-                                f"{html.escape(_prof['narrative'])}</div>", unsafe_allow_html=True)
-            st.markdown(
-                f"<div style='font-size:.78rem;margin-bottom:.4rem'>"
-                f"<span style='color:#6366f1;font-weight:700'>🏥 Company Health</span> <b>{r['fund_score']:.0f}/100</b> &nbsp; "
-                f"<span style='color:#f59e0b;font-weight:700'>📈 Price Trend</span> <b>{r['tech_score']:.0f}/100</b> &nbsp; "
-                f"<span style='color:#10b981;font-weight:700'>📰 News Mood</span> <b>{r['sent_score']:.0f}/100</b></div>",
-                unsafe_allow_html=True)
-            _fund_r = [x for x in r.get("reasons", []) if any(k in x.lower() for k in ("p/e","peg","revenue","margin","debt","valuation","profit","growth","capital","forward"))]
-            _tech_r = [x for x in r.get("reasons", []) if any(k in x.lower() for k in ("rsi","macd","sma","volume","trend","crossover","oversold","overbought","high","jumpy","steady"))]
-            _sent_r = [x for x in r.get("reasons", []) if x not in _fund_r and x not in _tech_r]
+                st.markdown(f"<div style='font-size:.72rem;font-weight:700;color:#6366f1;text-transform:uppercase;"
+                            f"letter-spacing:.06em'>🏢 About the company{_site}</div>{_facts_html}"
+                            f"<div style='font-size:.84rem;color:#334155;line-height:1.6;margin-bottom:.6rem'>"
+                            f"{html.escape(_prof['narrative'])}</div>", unsafe_allow_html=True)
+            _fund_r, _tech_r, _sent_r = _split_reasons(r.get("reasons", []))
             _rc1, _rc2, _rc3 = st.columns(3)
             for _col_r, _ttl, _items in ((_rc1, "🏥 Company Health", _fund_r),
                                          (_rc2, "📈 Price Trend", _tech_r),
@@ -1913,17 +1878,56 @@ long-term company view.
                         for _line in _half:
                             st.markdown(f"<div style='font-size:.78rem;color:#475569;padding:.05rem 0'>{_line}</div>",
                                         unsafe_allow_html=True)
-                _teach_sa = _explain_stats(_st_sa)
-                if _teach_sa:
-                    st.markdown("**🎓 What that means**")
-                    for _tl in _teach_sa:
-                        st.markdown(f"- {_tl}")
-            _hl_sa = r.get("headlines", [])
-            if _hl_sa:
-                st.markdown("**Recent news**")
-                for _h in _hl_sa[:4]:
-                    st.markdown(f"📰 {_h}")
-        st.divider()
+                for _tl in _explain_stats(_st_sa):
+                    st.markdown(f"- {_tl}")
+            for _h in (r.get("headlines") or [])[:4]:
+                st.markdown(f"📰 {_h}")
+
+    # ── Compact comparison table: every pick at a glance, sortable ────────────
+    _tbl_rows, _tbl_syms = [], []
+    for r in _picks_sa[:12]:
+        _tbl_syms.append(r["symbol"])
+        _tbl_rows.append({
+            "Stock":  r["symbol"] + ("  🔭" if r.get("_from_scan") else ""),
+            "Do":     r["action"],
+            "Score":  r["score"],
+            "Health": _factor_label("health", _safe_float(r.get("fund_score"), 50))[0],
+            "Trend":  _factor_label("trend",  _safe_float(r.get("tech_score"), 50))[0],
+            "News":   _factor_label("news",   _safe_float(r.get("sent_score"), 50))[0],
+            "Now → Target": f"${_safe_float(r.get('current_price')):,.2f} → ${_safe_float(r.get('target_price')):,.2f}",
+            "Upside": _safe_float(r.get("upside_pct")),
+        })
+    if _tbl_rows:
+        _tbl_df = pd.DataFrame(_tbl_rows)
+        def _c_word(v):
+            c = _RATING_COLORS.get(v); return f"color:{c};font-weight:600" if c else ""
+        def _c_do(v):
+            return f"color:{ {'Strong Buy':'#15803d','Buy':'#16a34a'}.get(v,'#334155') };font-weight:700"
+        def _c_score(v):
+            try: return f"color:{_score_color(float(v))};font-weight:700"
+            except Exception: return ""
+        def _c_up(v):
+            try: return "color:#16a34a;font-weight:600" if float(v) > 0 else "color:#dc2626;font-weight:600"
+            except Exception: return ""
+        _sty = (_tbl_df.style
+                .applymap(_c_word, subset=["Health", "Trend", "News"])
+                .applymap(_c_do, subset=["Do"])
+                .applymap(_c_score, subset=["Score"])
+                .applymap(_c_up, subset=["Upside"])
+                .format({"Score": "{:.0f}", "Upside": "{:+.0f}%"}))
+        _pk_ev = st.dataframe(_sty, use_container_width=True, hide_index=True,
+                              height=min(430, 44 + len(_tbl_rows) * 35),
+                              on_select="rerun", selection_mode="single-row", key="picks_table")
+        try:
+            _pk_sel = _pk_ev.selection.rows
+        except Exception:
+            _pk_sel = []
+        _sel_i = _pk_sel[0] if _pk_sel else 0
+        _sel_r = _picks_sa[_sel_i] if _sel_i < len(_picks_sa) else _picks_sa[0]
+        st.caption(f"👆 Showing **{_sel_r['symbol']}** — click any row above for another. "
+                   f"🔭 = found by market scan.")
+        st.markdown("<br>", unsafe_allow_html=True)
+        _render_pick_detail(_sel_r)
 
     # Near-misses: not buys today, but worth keeping an eye on
     _bench_sa = sorted([r for r in results
