@@ -1718,8 +1718,9 @@ long-term company view.
     _dec_map_sa = get_decision_map()
 
     try:
-        from agents.blurbs import get_blurbs
+        from agents.blurbs import get_blurbs, get_profiles
         _blurbs_sa = get_blurbs([r["symbol"] for r in _picks_sa[:8]])
+        _profiles_sa = get_profiles([r["symbol"] for r in _picks_sa[:8]])
     except Exception:
         _blurbs_sa = {}
 
@@ -1813,6 +1814,25 @@ long-term company view.
 
         # Full-width analysis — never squeezed into a narrow column
         with st.expander(f"🔎 Full analysis — {r['symbol']}"):
+            # ── About the company: what it sells, who buys, how it competes ──
+            _prof = _profiles_sa.get(r["symbol"])
+            if _prof:
+                _facts = []
+                if _prof.get("sector") or _prof.get("industry"):
+                    _facts.append("· ".join(x for x in (_prof.get("sector"), _prof.get("industry")) if x))
+                if _prof.get("employees"): _facts.append(_prof["employees"])
+                if _prof.get("hq"):        _facts.append("🏠 " + _prof["hq"])
+                _facts_html = ("<div style='font-size:.74rem;color:#94a3b8;margin:.15rem 0 .4rem'>"
+                               + "  ·  ".join(html.escape(f) for f in _facts) + "</div>") if _facts else ""
+                _site = ""
+                if _prof.get("website"):
+                    _w = html.escape(_prof["website"])
+                    _site = f" <a href='{_w}' target='_blank' style='color:#6366f1;font-size:.74rem'>website ↗</a>"
+                if _prof.get("narrative"):
+                    st.markdown(f"<div style='font-size:.72rem;font-weight:700;color:#6366f1;text-transform:uppercase;"
+                                f"letter-spacing:.06em'>🏢 About the company{_site}</div>{_facts_html}"
+                                f"<div style='font-size:.84rem;color:#334155;line-height:1.6;margin-bottom:.6rem'>"
+                                f"{html.escape(_prof['narrative'])}</div>", unsafe_allow_html=True)
             st.markdown(
                 f"<div style='font-size:.78rem;margin-bottom:.4rem'>"
                 f"<span style='color:#6366f1;font-weight:700'>🏥 Company Health</span> <b>{r['fund_score']:.0f}/100</b> &nbsp; "
