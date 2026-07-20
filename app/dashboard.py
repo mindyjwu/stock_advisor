@@ -1483,9 +1483,15 @@ elif page == "Stock Advisor":
                 _ai_scores = {r["symbol"]: r["score"] for r in get_latest_run_suggestions()}
                 st.session_state["sell_signals"] = _evaluate_holdings(UID, _ai_scores)
         _sigs = st.session_state.get("sell_signals")
+        # Discard results cached before the order-plan/Add feature existed, so a
+        # stale session doesn't show sell rows without their suggested price.
+        if _sigs and "order_advice" not in _sigs[0]:
+            _sigs = None
+            st.session_state.pop("sell_signals", None)
         if _sigs is None:
-            st.caption("Click above to review each holding. Recommendations sharpen after you've run "
-                       "an analysis (adds the AI thesis and buy-more signals).")
+            st.caption("Click above to review each holding. You'll get a suggested price and order "
+                       "type for anything to sell or add. Recommendations sharpen after an analysis "
+                       "(adds the AI thesis and buy-more signals).")
         else:
             _V_COLOR = {"Sell": "#dc2626", "Trim": "#b45309", "Hold": "#15803d", "Add": "#4f46e5"}
             _V_WORD  = {"Sell": "cut it", "Trim": "take some profit", "Hold": "sit tight", "Add": "buy more"}
