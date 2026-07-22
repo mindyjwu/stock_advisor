@@ -19,7 +19,7 @@ import json
 from datetime import datetime, timedelta
 from typing import Optional
 
-from db.connection import connect as _conn, PK_TYPE, INTEGRITY_ERRORS
+from db.connection import connect as _conn, PK_TYPE
 
 MAX_POST_LEN = 500
 MAX_BIO_LEN = 280

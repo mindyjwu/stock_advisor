@@ -120,6 +120,30 @@ db/
   users.py          Accounts + PBKDF2 password auth
 ```
 
+## Optional: community web app (Phase 4)
+
+Beyond the Streamlit dashboard, the repo also includes a proof-of-concept
+social layer for sharing picks and watchlists with other users, built as a
+separate service pair:
+
+- **`api/`** — a FastAPI backend exposing the same accounts/data over REST
+  ([`api/README.md`](api/README.md)).
+- **`web/`** — a Next.js (TypeScript) frontend for the community feed,
+  discussion threads, shared watchlists, and a personal portfolio view
+  ([`web/README.md`](web/README.md)).
+
+The Streamlit dashboard remains the primary analysis engine and works fully
+standalone without either of these. Start the API, then the web app, if you
+want the community features:
+
+```bash
+pip install -r api/requirements.txt
+uvicorn api.main:app --reload --port 8000
+
+# in a second terminal
+cd web && npm install && cp .env.local.example .env.local && npm run dev
+```
+
 ## Configuration notes
 
 - **AI model** — pick Sonnet / Opus / Haiku from the sidebar; the key lives in
