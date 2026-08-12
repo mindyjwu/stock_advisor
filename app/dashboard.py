@@ -42,6 +42,7 @@ from agents.screener import STYLE_META
 from scripts.run_analysis import run_analysis as _run_analysis
 from agents.allocator import build_plan, PROFILES
 from agents.sell_signals import evaluate_holdings as _evaluate_holdings
+from agents.whale_watch import get_portfolio as _get_whale_portfolio, list_investors as _list_whale_investors
 from app.auth import require_login, logout
 import db.community as _community
 from app.config import (
@@ -683,11 +684,12 @@ def _sidebar_snapshot():
         "asof":         _asof,
     }
 
-PAGES = ["Dashboard", "Stock Advisor", "Scan & Alerts", "Community", "Lists & History", "How It Works", "Settings"]
+PAGES = ["Dashboard", "Stock Advisor", "Scan & Alerts", "Whale Watch", "Community", "Lists & History", "How It Works", "Settings"]
 PAGE_ICONS = {
     "Dashboard":      "◼",
     "Stock Advisor":  "🎯",
     "Scan & Alerts":  "🔭",
+    "Whale Watch":    "🐋",
     "Community":      "👥",
     "How It Works":   "📖",
     "Lists & History":"📋",
@@ -2702,6 +2704,119 @@ Answer the user's question directly and concisely based on this data. Keep it un
                             if log_alert(a["symbol"], a["type"], a["message"], a["dedup_key"]))
                 st.success(f"{fired} new alert(s) logged.")
                 st.rerun()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# WHALE WATCH
+# ══════════════════════════════════════════════════════════════════════════════
+elif page == "Whale Watch":
+    st.markdown("# 🐋 Whale Watch")
+    st.markdown("What well-known investors' funds report owning — straight from their public "
+                "SEC filings. **Reference only, not a signal to copy.**")
+    st.markdown("""<div class="warn-banner">
+      ⚠️ 13F filings are required quarterly from any manager with $100M+ in US equities,
+      but they're published up to <b>45 days after quarter-end</b> — a fund may have already
+      sold what you're looking at. This never feeds into this app's own scoring.
+    </div><br>""", unsafe_allow_html=True)
+
+    _WHALE_ACTION_STYLE = {
+        "New":       ("#e7f9ef", "#127a45", "🆕 New"),
+        "Added":     ("#e8f0fe", "#1a56db", "▲ Added"),
+        "Reduced":   ("#fdf3d8", "#a16207", "▼ Reduced"),
+        "Sold Out":  ("#fde8e8", "#c81e1e", "✕ Sold out"),
+        "Unchanged": ("#f1f5f9", "#475569", "− Unchanged"),
+    }
+    def _whale_badge(action):
+        bg, fg, label = _WHALE_ACTION_STYLE.get(action, ("#f1f5f9", "#475569", action))
+        return f'<span class="badge" style="background:{bg};color:{fg}">{label}</span>'
+
+    _investors = _list_whale_investors()
+    _inv_labels = [f"{i['name']} — {i['fund']}" for i in _investors]
+    _inv_pick = st.radio("Investor", _inv_labels, horizontal=True, key="whale_investor",
+                         label_visibility="collapsed")
+    _inv = _investors[_inv_labels.index(_inv_pick)]
+
+    _wcol1, _wcol2 = st.columns([5, 1])
+    with _wcol2:
+        _whale_refresh = st.button("🔄 Refresh", key="whale_refresh", use_container_width=True)
+
+    with st.spinner(f"Loading {_inv['name']}'s latest 13F…"):
+        _whale = _get_whale_portfolio(_inv["key"], top_n=25, force_refresh=_whale_refresh)
+
+    if _whale.get("error"):
+        st.info(f"Couldn't load {_inv['name']}'s filing right now: {_whale['error']} "
+                "SEC EDGAR rate-limits bursts of traffic — this usually clears on its own; try Refresh in a minute.")
+    else:
+        _wm1, _wm2, _wm3, _wm4 = st.columns(4)
+        with _wm1:
+            st.markdown(f"""<div class="metric-card"><div class="metric-label">13F Value</div>
+              <div class="metric-value">{_fmt_cap(_whale['total_value']) or '—'}</div>
+              <div class="metric-sub">reported equity positions</div></div>""", unsafe_allow_html=True)
+        with _wm2:
+            st.markdown(f"""<div class="metric-card"><div class="metric-label">Positions</div>
+              <div class="metric-value">{_whale['n_positions']}</div>
+              <div class="metric-sub">in this filing</div></div>""", unsafe_allow_html=True)
+        with _wm3:
+            st.markdown(f"""<div class="metric-card"><div class="metric-label">Filed</div>
+              <div class="metric-value" style="font-size:1.15rem">{_whale['filed']}</div>
+              <div class="metric-sub">most recent 13F-HR</div></div>""", unsafe_allow_html=True)
+        with _wm4:
+            _prior_txt = _whale.get("prior_filed") or "—"
+            st.markdown(f"""<div class="metric-card"><div class="metric-label">Prior Filing</div>
+              <div class="metric-value" style="font-size:1.15rem">{_prior_txt}</div>
+              <div class="metric-sub">used for the move badges</div></div>""", unsafe_allow_html=True)
+
+        _my_syms = {t["symbol"] for t in load_watchlist()} | {p["symbol"] for p in load_live_holdings()[0].get("positions", [])}
+
+        st.markdown('<div class="section-header">Top holdings</div>', unsafe_allow_html=True)
+        for _p in _whale["positions"]:
+            _tk = _p["ticker"]
+            _mine = ' <span style="color:#4f46e5;font-weight:700">★ on your list</span>' if _tk and _tk in _my_syms else ""
+            _tk_disp = _tk or "—"
+            st.markdown(f"""<div class="metric-card" style="padding:.7rem 1.1rem;margin-bottom:.5rem">
+              <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.5rem">
+                <div>
+                  <span style="font-weight:800;color:#0f172a">{_tk_disp}</span>
+                  <span style="color:#64748b;font-size:.85rem"> {html.escape(_p['issuer'])}</span>{_mine}
+                </div>
+                <div style="display:flex;align-items:center;gap:.8rem">
+                  {_whale_badge(_p['action'])}
+                  <span style="font-weight:700;color:#0f172a">{_fmt_cap(_p['value']) or '—'}</span>
+                  <span style="color:#94a3b8;font-size:.82rem">{_p['pct']:.1f}% of portfolio</span>
+                </div>
+              </div></div>""", unsafe_allow_html=True)
+
+        st.caption("Tickers are matched from a curated list built off these funds' actual recent filings — "
+                   "13F filings only report company name + CUSIP, not ticker, so a few smaller/less common "
+                   "positions may show without one.")
+
+    st.markdown('<div class="section-header">🇺🇸 Donald Trump</div>', unsafe_allow_html=True)
+    st.markdown("""<div style="font-size:.85rem;color:#64748b;margin-bottom:.6rem">
+      The President isn't a registered investment manager, so there's no 13F — no structured,
+      machine-readable feed of his stock positions exists. His main <i>direct, public, liquid</i>
+      holding is Trump Media &amp; Technology Group (DJT).
+    </div>""", unsafe_allow_html=True)
+    try:
+        _djt = fetch_ticker_info("DJT")
+        _djt_px = _djt.get("currentPrice") or _djt.get("regularMarketPrice")
+        _dc1, _dc2, _dc3 = st.columns(3)
+        with _dc1:
+            st.markdown(f"""<div class="metric-card"><div class="metric-label">DJT Price</div>
+              <div class="metric-value">${_safe_float(_djt_px):.2f}</div></div>""", unsafe_allow_html=True)
+        with _dc2:
+            st.markdown(f"""<div class="metric-card"><div class="metric-label">Market Cap</div>
+              <div class="metric-value">{_fmt_cap(_djt.get('marketCap')) or '—'}</div></div>""", unsafe_allow_html=True)
+        with _dc3:
+            st.markdown(f"""<div class="metric-card"><div class="metric-label">52-wk Range</div>
+              <div class="metric-value" style="font-size:1.1rem">${_safe_float(_djt.get('fiftyTwoWeekLow')):.2f} – ${_safe_float(_djt.get('fiftyTwoWeekHigh')):.2f}</div></div>""",
+              unsafe_allow_html=True)
+    except Exception:
+        st.caption("Couldn't load live DJT data right now.")
+    st.caption("Federal officials do file an annual OGE Form 278 financial disclosure, but it reports "
+               "assets in wide value ranges (e.g. \"$1M–$5M\"), not trades — not something reliable enough "
+               "to parse as structured data here. The official public search is at "
+               "[oge.gov](https://www.oge.gov/web/oge.nsf/Officials%20Individual%20Disclosures%20Search%20Collection) "
+               "if you want to look up a specific filing yourself.")
 
 
 # ══════════════════════════════════════════════════════════════════════════════

@@ -46,6 +46,13 @@ second frontend for the community/social features only (see
   companies riding the same trend; every ticker is validated against live data first.
 - **🔔 Alerts** — Strong-Buy flips, price-target hits, big daily moves, and scan
   discoveries you don't own yet; optional macOS notification poller.
+- **🐋 Whale Watch** — what well-known investors' funds report owning, straight
+  from their public SEC 13F filings (Buffett, Ackman, Icahn, Burry, Druckenmiller,
+  Dalio, Tepper, Soros), with New/Added/Reduced/Sold-Out badges vs. their prior
+  filing and a cross-reference against your own watchlist. Reference only — it
+  never feeds into this app's own scoring, and 13F data is up to 45 days stale
+  by the time it's public. Includes a Trump/DJT card, since the President doesn't
+  file a 13F and there's no equivalent structured feed for his holdings.
 - **📊 Performance** — the honest report card: how every past suggestion actually
   did, across multiple time windows.
 - **📖 How It Works** — the full scoring rulebook in plain English, plus per-user
@@ -161,6 +168,7 @@ agents/
   screener.py       Style tagging + sector-diverse shortlists
   supply_chain.py   AI supply-chain niche discovery
   alerts.py         Alert trigger rules
+  whale_watch.py    SEC 13F fetch/parse/diff for the Whale Watch page
 scripts/
   run_analysis.py   Watchlist analysis pipeline (parallel)
   market_scan.py    Two-pass S&P 500 scan (bulk downloads)
