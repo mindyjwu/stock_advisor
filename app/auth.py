@@ -8,7 +8,9 @@ by the returned user id.
 """
 import streamlit as st
 
-from db.users import init_users, create_user, authenticate, USERNAME_RULES
+from db.users import (
+    init_users, create_user, authenticate, lockout_remaining_seconds, USERNAME_RULES,
+)
 
 
 def require_login() -> dict:
@@ -72,7 +74,12 @@ def require_login() -> dict:
                         st.session_state["user"] = user
                         st.rerun()
                     else:
-                        st.error("Wrong username or password.")
+                        _locked = lockout_remaining_seconds(u)
+                        if _locked > 0:
+                            st.error(f"Too many failed attempts. Try again in "
+                                     f"{_locked // 60 + 1} minute(s).")
+                        else:
+                            st.error("Wrong username or password.")
 
         with tab_up:
             with st.form("signup_form"):

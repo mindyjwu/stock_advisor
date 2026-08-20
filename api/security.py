@@ -14,9 +14,24 @@ import hashlib
 import hmac
 import os
 import time
+import warnings
 
-_SECRET = os.environ.get("API_SECRET", "dev-only-insecure-secret-change-me").encode()
+_DEFAULT_SECRET = "dev-only-insecure-secret-change-me"
+_SECRET_STR = os.environ.get("API_SECRET", _DEFAULT_SECRET)
+_SECRET = _SECRET_STR.encode()
 TOKEN_TTL_SECONDS = int(os.environ.get("API_TOKEN_TTL", str(30 * 24 * 3600)))  # 30 days
+
+# Refuse to run in production with the shipped dev secret; warn otherwise.
+if _SECRET_STR == _DEFAULT_SECRET:
+    if os.environ.get("APP_ENV", "").lower() in ("prod", "production"):
+        raise RuntimeError(
+            "API_SECRET must be set in production — refusing to start with the dev default. "
+            "Set a strong, random API_SECRET environment variable."
+        )
+    warnings.warn(
+        "API_SECRET is the insecure development default. Set API_SECRET before deploying.",
+        stacklevel=2,
+    )
 
 
 def _sign(msg: str) -> str:

@@ -42,7 +42,6 @@ from agents.screener import STYLE_META
 from scripts.run_analysis import run_analysis as _run_analysis
 from agents.allocator import build_plan, PROFILES
 from agents.sell_signals import evaluate_holdings as _evaluate_holdings
-from agents.whale_watch import get_portfolio as _get_whale_portfolio, list_investors as _list_whale_investors
 from app.auth import require_login, logout
 import db.community as _community
 from app.config import (
@@ -336,23 +335,11 @@ def delete_shared_watchlist(list_id):   return _community.delete_shared_watchlis
 def get_shared_watchlists(limit=50):    return _community.get_shared_watchlists(UID, limit)
 
 def verified_return_pct(candidate_id):
-    """Average % return across a user's 'bought' decisions, priced live.
-    This is the leaderboard's verifiable metric — it comes from timestamped
-    decision logs, not self-reported numbers. Returns (avg_pct, n) or (None, 0)."""
-    rets = []
-    for d in _get_decisions(candidate_id):
-        if d.get("decision") != "bought":
-            continue
-        then = _safe_float(d.get("price"))
-        if then <= 0:
-            continue
-        info = fetch_ticker_info(d["symbol"])
-        now = _safe_float(info.get("currentPrice") or info.get("regularMarketPrice"))
-        if now > 0:
-            rets.append((now - then) / then * 100)
-    if not rets:
-        return None, 0
-    return sum(rets) / len(rets), len(rets)
+    """Average % return across a user's 'bought' decisions, priced live — the
+    leaderboard's verifiable metric (from timestamped decision logs, not
+    self-reported). Cached per user via agents.track_record. (avg_pct, n)."""
+    from agents.track_record import verified_return
+    return verified_return(candidate_id)
 def backup_holdings():                  return _backup_holdings(UID)
 def restore_holdings(path):             return _restore_holdings(UID, path)
 def get_latest_run_suggestions():      return _get_latest_run_suggestions(UID)
@@ -1513,82 +1500,34 @@ elif page == "Stock Advisor":
     st.markdown("# 🎯 Stock Advisor")
     st.markdown("Top-down: the market's mood → the AI's best picks you don't own yet → a concrete plan for your cash.")
 
-    # ══ Manage what you own: sell / trim / hold / add ═════════════════════════
-    st.markdown('<div class="section-header">🔀 Manage your holdings — sell, hold, or buy more</div>', unsafe_allow_html=True)
-    st.caption("A review of the stocks you own: when to take profit or cut losses (with a suggested "
-               "price and order type), what's fine to hold, and which winners are worth adding to. "
-               "Each stock also shows Wall Street's consensus rating so you can compare.")
-    with st.expander("🤔 Why do we sometimes say 'Sell' when analysts say 'Buy'?"):
-        st.markdown("""
-**They're answering a different question than we are.**
-
-- **Analysts rate the _company_** — "is this a good business to own over the next 12 months?"
-  Their ratings also skew optimistic: across Wall Street, *Buy/Hold/Sell* splits are roughly
-  55% / 40% / 5%. Genuine "Sell" ratings are rare, partly because banks want to keep
-  relationships with the companies they cover.
-- **We manage _your position_** — "given what *you* paid and what the chart is doing right now,
-  is this the moment to take some profit or cut a loss?" A **Sell** here often means *"you're up
-  a lot and the trend is weakening — consider locking in gains,"* **not** *"this is a bad company."*
-  A stock can be a great business (analyst Buy) and still be a smart place to take profit after a
-  big run.
-
-**So the two views aren't really in conflict** — read them together. When our call and Wall
-Street's line up, that's a strong signal. When they diverge, the 🧠 *second opinion* button reads
-the news to help you judge which fits your situation. We are **not** more informed than 40 analysts
-on the business itself — treat our call as risk/position management, and their rating as the
-long-term company view.
-""")
+    # ══ When to Sell: a sell-side check on what you already own ════════════════
+    st.markdown('<div class="section-header">🔻 When to Sell — your holdings</div>', unsafe_allow_html=True)
+    st.caption("Before new buys: a sell-side review of the stocks you own — stop-losses, "
+               "stretched valuations, fading momentum, and profit-taking on big winners.")
     _sell_positions = load_holdings().get("positions", [])
     if not _sell_positions:
         st.info("No holdings to review yet — import your portfolio in **Settings**.")
     else:
-        if st.button("🔀  Review my holdings", key="run_sell_signals"):
+        if st.button("🔻  Check my holdings for sell signals", key="run_sell_signals"):
             with st.spinner(f"Reviewing your {len(_sell_positions)} holdings…"):
                 _ai_scores = {r["symbol"]: r["score"] for r in get_latest_run_suggestions()}
                 st.session_state["sell_signals"] = _evaluate_holdings(UID, _ai_scores)
         _sigs = st.session_state.get("sell_signals")
-        # Discard results cached before the order-plan/Add feature existed, so a
-        # stale session doesn't show sell rows without their suggested price.
-        if _sigs and "order_advice" not in _sigs[0]:
-            _sigs = None
-            st.session_state.pop("sell_signals", None)
         if _sigs is None:
-            st.caption("Click above to review each holding. You'll get a suggested price and order "
-                       "type for anything to sell or add. Recommendations sharpen after an analysis "
-                       "(adds the AI thesis and buy-more signals).")
+            st.caption("Click above to score each holding on how urgently it warrants a look. "
+                       "Signals sharpen after you've run an analysis (adds the AI thesis).")
         else:
-            _V_COLOR = {"Sell": "#dc2626", "Trim": "#b45309", "Hold": "#15803d", "Add": "#4f46e5"}
-            _V_WORD  = {"Sell": "cut it", "Trim": "take some profit", "Hold": "sit tight", "Add": "buy more"}
-            _n_sell = sum(1 for s in _sigs if s["verdict"] in ("Sell", "Trim"))
-            _n_add  = sum(1 for s in _sigs if s["verdict"] == "Add")
-            _summary = []
-            if _n_sell: _summary.append(f"<b>{_n_sell}</b> to sell/trim")
-            if _n_add:  _summary.append(f"<b>{_n_add}</b> worth adding to")
-            _summary.append("the rest fine to hold")
-            st.markdown(f"<div style='font-size:.85rem;color:#334155;margin:.2rem 0 .6rem'>"
-                        f"{' · '.join(_summary)}.</div>", unsafe_allow_html=True)
-
-            # ── AI second opinion on the EXTREME sells (reads the news) ───────
-            _extreme = [s for s in _sigs if s["verdict"] == "Sell"][:8]
-            if _extreme:
-                if st.button("🧠  Second opinion on urgent sells — read the news & macro context",
-                             key="run_sell_review"):
-                    with st.spinner(f"Reading recent headlines & catalysts for {len(_extreme)} urgent sells…"):
-                        from agents.sell_signals import ai_sell_review_batch
-                        os.environ["ADVISOR_AI_MODEL"] = st.session_state.get("ai_model_id", "claude-sonnet-4-6")
-                        st.session_state["sell_review"] = ai_sell_review_batch(
-                            [{"symbol": s["symbol"], "reasons": s["reasons"], "gl_pct": s.get("gl_pct")}
-                             for s in _extreme])
-                        if not st.session_state["sell_review"]:
-                            st.warning("Couldn't fetch a news review right now (needs the AI key and recent headlines).")
-                st.caption("The mechanical model reads charts, not news. This asks the AI whether each urgent "
-                           "sell is a true breakdown or has a real catalyst to hold through (e.g. policy tailwinds).")
-            _sreview = st.session_state.get("sell_review") or {}
-
-            # Order the list so action items (sell/trim, then add) float to the top
-            _order = {"Sell": 0, "Trim": 1, "Add": 2, "Hold": 3}
-            def _render_holding(s):
-                _col = _V_COLOR[s["verdict"]]
+            _SELL_COLOR = {"Sell": "#dc2626", "Trim": "#b45309", "Hold": "#15803d"}
+            _n_act = sum(1 for s in _sigs if s["verdict"] != "Hold")
+            st.markdown(
+                f"<div style='font-size:.85rem;color:#334155;margin:.2rem 0 .6rem'>"
+                f"<b>{_n_act}</b> of <b>{len(_sigs)}</b> holdings flagged for action "
+                f"(Sell/Trim); the rest look fine to hold.</div>" if _n_act else
+                "<div style='font-size:.85rem;color:#15803d;margin:.2rem 0 .6rem'>"
+                "✅ Nothing flagged — every holding still looks like a hold.</div>",
+                unsafe_allow_html=True)
+            for s in _sigs:
+                _col = _SELL_COLOR[s["verdict"]]
                 _gl = s.get("gl_pct")
                 _glstr = (f"<span style=\"color:{'#15803d' if _gl >= 0 else '#dc2626'};font-weight:600\">"
                           f"{'+' if _gl >= 0 else ''}{_gl:.1f}%</span>") if _gl is not None else "—"
@@ -1602,97 +1541,19 @@ long-term company view.
                     st.markdown(
                         f"<span style='background:{_col};color:#fff;border-radius:99px;"
                         f"padding:2px 12px;font-weight:700;font-size:.8rem'>{s['verdict']}</span>"
-                        f"<div style='color:#94a3b8;font-size:.68rem;margin-top:.3rem'>{_V_WORD[s['verdict']]}</div>"
-                        + (f"<div style='color:#94a3b8;font-size:.68rem'>urgency {int(s['urgency'])}/100</div>"
-                           f"<div class='score-bar-bg' style='margin-top:2px'>"
-                           f"<div class='score-bar-fill' style='width:{_bar}%;background:{_col}'></div></div>"
-                           if s["verdict"] in ("Sell", "Trim") else ""),
+                        f"<div style='color:#94a3b8;font-size:.7rem;margin-top:.35rem'>urgency {int(s['urgency'])}/100</div>"
+                        f"<div class='score-bar-bg' style='margin-top:2px'>"
+                        f"<div class='score-bar-fill' style='width:{_bar}%;background:{_col}'></div></div>",
                         unsafe_allow_html=True)
                 with sc3:
-                    # Concrete order plan: how many shares + suggested price + order type
-                    if s["verdict"] in ("Sell", "Trim") and s.get("suggested_sell_qty"):
+                    if s["verdict"] != "Hold" and s.get("suggested_sell_qty"):
                         st.markdown(f"<div style='font-size:.82rem;color:#0f172a;font-weight:700'>"
-                                    f"Suggested: sell {s['suggested_sell_qty']:g} of {s['quantity']:g} share(s)</div>",
+                                    f"Suggested: sell {s['suggested_sell_qty']:g} share(s)</div>",
                                     unsafe_allow_html=True)
-                        # What you'd actually walk away with (or lose)
-                        _rz = s.get("realized_if_sold")
-                        _pr = s.get("proceeds_if_sold")
-                        if _rz is not None and _pr is not None:
-                            _win = _rz >= 0
-                            _mc = "#15803d" if _win else "#dc2626"
-                            _verb = "lock in a profit of" if _win else "realize a loss of"
-                            _line = (f"If you sell {s['suggested_sell_qty']:g} share(s) at ~&#36;{(s.get('limit_price') or s['current_price']):,.2f}: "
-                                     f"you'd receive about <b>&#36;{_pr:,.0f}</b> and {_verb} "
-                                     f"<b style='color:{_mc}'>{'+' if _win else '−'}&#36;{abs(_rz):,.0f}</b>.")
-                            _rem = s["quantity"] - s["suggested_sell_qty"]
-                            if _rem > 0:
-                                _line += f" You'd still hold {_rem:g} share(s)."
-                            st.markdown(f"<div style='font-size:.8rem;color:#334155;background:{'#f0fdf4' if _win else '#fef2f2'};"
-                                        f"border-left:3px solid {_mc};border-radius:6px;padding:.35rem .6rem;margin:.2rem 0'>"
-                                        f"💵 {_line}</div>", unsafe_allow_html=True)
-                    if s.get("order_advice"):
-                        _icon = "🟢" if s["verdict"] == "Add" else "🎫"
-                        # Two $ signs in one string get parsed as LaTeX and eat the
-                        # price — escape $ to an HTML entity and convert **bold**
-                        _adv = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", s["order_advice"]).replace("$", "&#36;")
-                        st.markdown(f"<div style='font-size:.8rem;color:#334155;background:#f8fafc;"
-                                    f"border-left:3px solid {_col};border-radius:6px;padding:.35rem .6rem;margin:.2rem 0'>"
-                                    f"{_icon} {_adv}</div>", unsafe_allow_html=True)
                     for _r in s["reasons"][:4]:
                         st.markdown(f"<div style='font-size:.8rem;color:#475569'>• {_r}</div>",
                                     unsafe_allow_html=True)
-                    # Wall Street consensus — reference point next to our call
-                    _an = s.get("analyst")
-                    if _an and _an.get("rating"):
-                        _ar = _an["rating"]
-                        _ar_col = {"Strong Buy": "#15803d", "Buy": "#16a34a", "Hold": "#b45309",
-                                   "Sell": "#dc2626", "Strong Sell": "#b91c1c"}.get(_ar, "#64748b")
-                        _tgt = ""
-                        if _an.get("target"):
-                            _u = _an.get("target_upside_pct")
-                            _utxt = (f", {'+' if (_u or 0) >= 0 else ''}{_u:.0f}% vs today" if _u is not None else "")
-                            _tgt = f" · avg target &#36;{_an['target']:,.2f}{_utxt}"
-                        _na = f" ({_an['n_analysts']} analysts)" if _an.get("n_analysts") else ""
-                        _diff = _ar in ("Buy", "Strong Buy") and s["verdict"] in ("Sell", "Trim")
-                        st.markdown(
-                            f"<div style='font-size:.78rem;color:#475569;margin-top:.15rem'>"
-                            f"📊 <b>Wall Street{_na}:</b> <span style='color:{_ar_col};font-weight:700'>{_ar}</span>{_tgt}"
-                            + ("  <span style='color:#94a3b8'>— they rate the company; we're managing your position</span>" if _diff else "")
-                            + "</div>", unsafe_allow_html=True)
-                    # AI news-aware second opinion (extreme sells only)
-                    _rev = _sreview.get(s["symbol"])
-                    if _rev:
-                        _stance = _rev.get("stance", "Mixed")
-                        _sc_col = {"Confirm": "#dc2626", "Reconsider": "#15803d", "Mixed": "#b45309"}.get(_stance, "#b45309")
-                        _sc_lbl = {"Confirm": "✅ Confirms the sell", "Reconsider": "🤔 Maybe hold through",
-                                   "Mixed": "⚖️ Genuinely mixed"}.get(_stance, _stance)
-                        _cat = f" <i>Catalyst: {html.escape(_rev['catalyst'])}.</i>" if _rev.get("catalyst") else ""
-                        st.markdown(
-                            f"<div style='font-size:.8rem;color:#334155;background:#eef2ff;"
-                            f"border-left:3px solid {_sc_col};border-radius:6px;padding:.4rem .6rem;margin:.3rem 0'>"
-                            f"🧠 <b>AI second opinion — <span style='color:{_sc_col}'>{_sc_lbl}</span>:</b> "
-                            f"{html.escape(_rev['rationale']).replace('$','&#36;')}{_cat}</div>",
-                            unsafe_allow_html=True)
-                    if s["verdict"] == "Hold" and s.get("stop_loss_price"):
-                        st.markdown(f"<div style='font-size:.75rem;color:#94a3b8;margin-top:.2rem'>"
-                                    f"🛡️ Protective stop-loss idea: exit if it falls to "
-                                    f"~${s['stop_loss_price']:,.2f}</div>", unsafe_allow_html=True)
                 st.divider()
-
-            # Show what needs a decision; tuck the "fine to hold" majority away
-            _sorted_sigs = sorted(_sigs, key=lambda x: (_order.get(x["verdict"], 4), -x["urgency"]))
-            _act_items = [s for s in _sorted_sigs if s["verdict"] != "Hold"]
-            _hold_items = [s for s in _sorted_sigs if s["verdict"] == "Hold"]
-            for s in _act_items:
-                _render_holding(s)
-            if _hold_items:
-                with st.expander(f"😴 {len(_hold_items)} holdings that are fine to hold — no action needed"):
-                    for s in _hold_items:
-                        _render_holding(s)
-            st.caption("Suggested prices are starting points, not guarantees. A **limit** order fills only at "
-                       "your price or better; a **market** order fills immediately at whatever's available. "
-                       "Profit/loss figures are **before taxes and fees** — realized gains on stocks held under "
-                       "a year are usually taxed at a higher rate, so your after-tax number will be lower.")
     st.markdown("<br>", unsafe_allow_html=True)
 
     # ── Get scored results: this session first, then the last saved run ──────
