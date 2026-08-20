@@ -1,7 +1,7 @@
 """Scores stocks 0-100 on news/sentiment using Claude."""
 import os
 import json
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor
 import yfinance as yf
 from anthropic import Anthropic
 

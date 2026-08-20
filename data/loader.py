@@ -64,9 +64,19 @@ def load_holdings(user_id: int) -> dict:
 INFO_CACHE_DIR = ROOT / "data" / "cache" / "info"
 INFO_CACHE_TTL_SECONDS = 15 * 60  # fresh enough for prices, avoids re-fetching 500 tickers
 
+# ── Caching strategy: RAM first, disk only as a cold-start accelerator ────────
+# The slowest thing by far is the yfinance NETWORK call. So:
+#   1. RAM (lru_cache below): every fetch this server has already done stays in
+#      memory — repeat runs/scans are near-instant and never touch disk or net.
+#   2. Disk (info only): survives a restart so a cold start reads local files
+#      instead of hammering the network (local read ≫ faster than network).
+# maxsize covers a full ~500-ticker S&P scan + your holdings + watchlist across
+# several look-back periods without evicting. ~2048 dicts/frames ≈ well under
+# ~250 MB — comfortable in RAM, no OOM risk ("won't crush").
+_RAM_CACHE_SIZE = 2048
 
-# maxsize must cover a full ~500-ticker S&P scan, or the cache thrashes
-@lru_cache(maxsize=1024)
+
+@lru_cache(maxsize=_RAM_CACHE_SIZE)
 def fetch_ticker_info(symbol: str) -> dict:
     # Disk cache layer: makes repeat scans near-instant across app restarts
     cache_file = INFO_CACHE_DIR / f"{symbol.upper()}.json"
@@ -126,8 +136,9 @@ def fetch_price_history_bulk(symbols: list, period: str = "3mo", chunk_size: int
     return out
 
 
-@lru_cache(maxsize=1024)
+@lru_cache(maxsize=_RAM_CACHE_SIZE)
 def fetch_price_history(symbol: str, period: str = "6mo") -> pd.DataFrame:
+    # Held entirely in RAM after the first fetch — no disk round-trip.
     t = yf.Ticker(symbol)
     df = t.history(period=period)
     df.index = df.index.tz_localize(None)
@@ -159,14 +170,18 @@ def holdings_by_symbol(holdings: dict) -> dict:
 def save_watchlist(user_id: int, tickers: list[dict]):
     with open(_user_dir(user_id) / "watchlist.json", "w") as f:
         json.dump({"tickers": tickers}, f, indent=2)
-    fetch_ticker_info.cache_clear()
-    fetch_price_history.cache_clear()
+    # Deliberately do NOT clear the RAM cache: editing a list doesn't change any
+    # stock's market data. A newly-added ticker simply isn't cached yet, so it
+    # gets fetched on the next run; every other ticker stays hot in RAM. (Old
+    # code wiped the whole cache here, forcing a full network re-fetch — slow.)
 
 
 def save_holdings(user_id: int, holdings: dict):
     with open(_user_dir(user_id) / "holdings.json", "w") as f:
         json.dump(holdings, f, indent=2)
-    fetch_ticker_info.cache_clear()
+    # Same reasoning as save_watchlist: keep the RAM cache warm. Live portfolio
+    # values are refreshed separately (dashboard clears its 5-min holdings cache
+    # on import, and info has its own 15-min freshness window).
 
 
 def backup_holdings(user_id: int) -> Optional[str]:
@@ -189,7 +204,6 @@ def restore_holdings(user_id: int, backup_path: str) -> bool:
     if not src.exists():
         return False
     shutil.copy2(src, _user_dir(user_id) / "holdings.json")
-    fetch_ticker_info.cache_clear()
     return True
 
 
