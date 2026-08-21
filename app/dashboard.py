@@ -2817,6 +2817,49 @@ def _render_performance_section():
         _n_passed = sum(1 for d in _decs if d["decision"] == "passed")
         st.caption(f"You've marked {_n_bought} **bought** and {_n_passed} **passed**. "
                    "Returns are measured from the price when you made the call.")
+
+        # ── Advisor scorecard: grade the calls, not just list them ───────────
+        from agents.scorecard import scorecard as _build_scorecard
+        _sc = _build_scorecard(UID)
+        _b, _p = _sc["bought"], _sc["passed"]
+        if _sc["decision_accuracy"] is not None or _b["n_priced"] or _p["n_priced"]:
+            _c1, _c2, _c3, _c4 = st.columns(4)
+            _acc = _sc["decision_accuracy"]
+            _c1.metric("Decision accuracy", f"{_acc:.0f}%" if _acc is not None else "—",
+                       help="Bought picks that rose + passed picks that fell, over everything priced.")
+            _c2.metric("Buy hit rate", f"{_b['hit_rate']:.0f}%" if _b["hit_rate"] is not None else "—",
+                       help=f"Share of your {_b['n_priced']} priced buys that are currently up.")
+            _c3.metric("Avg buy return",
+                       f"{_b['avg_return']:+.1f}%" if _b["avg_return"] is not None else "—",
+                       help="Average paper return across your bought picks.")
+            _missed = _p["missed_winners"]
+            _c4.metric("Passed → winners", f"{_missed}",
+                       help=f"Picks you passed on that rose anyway (of {_p['n_priced']} priced). "
+                            f"You dodged {_p['avoided_losers']} that fell or stayed flat.")
+
+            _best, _worst = _b["best"], _b["worst"]
+            if _best is not None and _worst is not None and _best["symbol"] != _worst["symbol"]:
+                st.caption(
+                    f"Best call: **{_best['symbol']}** {_best['return_pct']:+.1f}% · "
+                    f"Worst call: **{_worst['symbol']}** {_worst['return_pct']:+.1f}%")
+
+            _cal = _sc["score_calibration"]
+            if len(_cal) >= 2:
+                _cal_df = pd.DataFrame([
+                    {"AI score": c["bucket"], "Picks": c["n"], "Avg return": c["avg_return"]}
+                    for c in _cal
+                ])
+                with st.expander("Is the AI score predictive? (score → return)"):
+                    st.caption("If the score works, higher-scored buys should show higher average "
+                               "returns. Small samples are noisy — read the trend, not one row.")
+                    st.dataframe(
+                        _cal_df.style
+                            .map(lambda v: f"color:{POS_COLOR};font-weight:600" if isinstance(v, (int, float)) and v > 0
+                                 else (f"color:{NEG_COLOR};font-weight:600" if isinstance(v, (int, float)) and v < 0 else ""),
+                                 subset=["Avg return"])
+                            .format({"Avg return": "{:+.1f}%"}, na_rep="—"),
+                        use_container_width=True, hide_index=True,
+                    )
         _dec_rows = []
         for d in _decs:
             _now_p = _safe_float(fetch_ticker_info(d["symbol"]).get("currentPrice")

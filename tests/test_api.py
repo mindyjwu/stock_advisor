@@ -125,6 +125,22 @@ def test_moderation(client):
     assert client.get("/api/community/blocked", headers=ha).json() == []
 
 
+def test_scorecard_endpoint(client):
+    a = _signup(client, "alice")
+    b = _signup(client, "bob")               # separate user, untouched cache
+    ha, hb = _auth(a["token"]), _auth(b["token"])
+    # empty scorecard is well-formed
+    empty = client.get("/api/scorecard", headers=hb).json()
+    assert empty["n_decisions"] == 0 and empty["decision_accuracy"] is None
+    # NVDA mock price is 142 -> a bought pick at 100 is +42%
+    S.record_decision(a["user"]["id"], "NVDA", "bought", "Buy", 100.0, 80)
+    S.record_decision(a["user"]["id"], "AAA", "passed", "Hold", 100.0, 50)
+    sc = client.get("/api/scorecard", headers=ha).json()
+    assert sc["n_bought"] == 1 and sc["n_passed"] == 1
+    assert abs(sc["bought"]["avg_return"] - 42.0) < 0.01
+    assert sc["bought"]["hit_rate"] == 100.0
+
+
 def test_sell_signals_endpoint(client):
     a = _signup(client, "alice")
     ha = _auth(a["token"])
