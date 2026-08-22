@@ -3432,6 +3432,33 @@ elif page == "Settings":
 
     st.markdown("---")
 
+    # ── Email alerts ──────────────────────────────────────────────────────────
+    st.markdown("### 📧 Email Alerts")
+    from agents.notifier import email_configured as _email_configured
+    _al = load_user_settings()
+    if not _email_configured():
+        st.caption("Server email isn't configured yet, so alerts show in the app but aren't "
+                   "emailed. The app owner sets SMTP_HOST / SMTP_FROM (see the README) and runs "
+                   "`python -m scripts.run_alerts` on a schedule to deliver them.")
+    with st.form("email_alerts_form"):
+        _enabled = st.checkbox("Email me when a watchlist alert fires",
+                               value=bool(_al.get("email_alerts_enabled")))
+        _addr = st.text_input("Send alerts to", value=_al.get("alert_email", ""),
+                              placeholder="you@example.com")
+        if st.form_submit_button("Save alert preferences"):
+            _addr = (_addr or "").strip()
+            if _enabled and "@" not in _addr:
+                st.error("Enter a valid email address to turn on email alerts.")
+            else:
+                _al["email_alerts_enabled"] = bool(_enabled)
+                _al["alert_email"] = _addr
+                save_user_settings(_al)
+                st.success("Alert preferences saved. "
+                           + ("You'll get an email when target hits, big moves, or Strong-Buy "
+                              "flips fire." if _enabled else "Email alerts are off."))
+
+    st.markdown("---")
+
     # ── Watchlist editor ──────────────────────────────────────────────────────
     st.markdown("### 📋 Watchlist")
     wl = load_watchlist()

@@ -190,6 +190,15 @@ def get_user(user_id: int) -> Optional[dict]:
     return _row_to_user(row) if row else None
 
 
+def list_users() -> list[dict]:
+    """All accounts, oldest first. Used by server-side jobs (e.g. the email
+    alert runner) that iterate every user."""
+    init_users()
+    with _conn() as con:
+        rows = con.execute("SELECT * FROM users ORDER BY created_at, id").fetchall()
+    return [_row_to_user(r) for r in rows]
+
+
 def get_owner() -> Optional[dict]:
     init_users()
     with _conn() as con:

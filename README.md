@@ -174,7 +174,8 @@ agents/
 scripts/
   run_analysis.py       Watchlist analysis pipeline (parallel)
   market_scan.py        Two-pass S&P 500 scan (bulk downloads)
-  alert_poller.py       Background market-hours alert poller (owner)
+  alert_poller.py       Background market-hours alert poller (owner, desktop)
+  run_alerts.py         One-shot, multi-user email alert runner (cron-friendly)
   migrate_to_postgres.py  Copy an existing SQLite DB into Postgres
 data/
   loader.py         Market data fetching + per-user storage
@@ -215,6 +216,26 @@ pinned (`requirements.txt`) so installs are reproducible.
 - **Security** — set a strong `API_SECRET` for the API (it refuses to start with
   the dev default when `APP_ENV=production`); accounts lock for 15 min after 5
   failed logins.
+- **Email alerts** — alerts always show in-app. To also deliver them by email,
+  set the SMTP variables and run the alert job on a schedule:
+
+  ```bash
+  # SMTP config (e.g. Gmail app-password, SendGrid, SES…)
+  SMTP_HOST=smtp.gmail.com
+  SMTP_PORT=587            # STARTTLS; set SMTP_USE_TLS=0 for a plain server
+  SMTP_USER=bot@example.com
+  SMTP_PASSWORD=your-app-password
+  SMTP_FROM=bot@example.com   # defaults to SMTP_USER
+
+  # Run once (drive it from cron / a systemd timer), e.g. every 15 min on
+  # weekdays during US market hours (times in UTC):
+  */15 13-20 * * 1-5   cd /app && python -m scripts.run_alerts
+  ```
+
+  Each user opts in under **Settings → Email Alerts** with their address. The job
+  re-prices their latest suggestions, fires target-hit / big-move / Strong-Buy-flip
+  alerts, dedupes per day, and emails only what's new. Without SMTP configured the
+  job still logs alerts in-app — it just skips the email.
 
 ## Configuration notes
 
