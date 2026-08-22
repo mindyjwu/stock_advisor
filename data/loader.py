@@ -1,6 +1,7 @@
 import json
 import pathlib
 import shutil
+import time
 import yfinance as yf
 import pandas as pd
 from datetime import datetime
@@ -75,20 +76,40 @@ INFO_CACHE_TTL_SECONDS = 15 * 60  # fresh enough for prices, avoids re-fetching 
 # ~250 MB — comfortable in RAM, no OOM risk ("won't crush").
 _RAM_CACHE_SIZE = 2048
 
+# yfinance sits on top of Yahoo's public endpoints, which throttle and blip
+# under load. A single transient failure shouldn't poison the cache or blank a
+# scan, so wrap the network calls in a short exponential backoff.
+_FETCH_RETRIES = 3
+_RETRY_BASE_DELAY = 0.5
+
+
+def _retry(fn, retries: int = _FETCH_RETRIES, base_delay: float = _RETRY_BASE_DELAY):
+    """Call fn(), retrying with exponential backoff on any exception. Re-raises
+    the last error after exhausting retries — crucially, it NEVER swallows the
+    failure into a return value, so lru_cache (which only caches successful
+    returns) never caches a transient outage as if it were real data."""
+    last_err = None
+    for attempt in range(retries):
+        try:
+            return fn()
+        except Exception as e:  # noqa: BLE001 — yfinance raises a grab-bag of types
+            last_err = e
+            if attempt < retries - 1:
+                time.sleep(base_delay * (2 ** attempt))
+    raise last_err
+
 
 @lru_cache(maxsize=_RAM_CACHE_SIZE)
 def fetch_ticker_info(symbol: str) -> dict:
     # Disk cache layer: makes repeat scans near-instant across app restarts
     cache_file = INFO_CACHE_DIR / f"{symbol.upper()}.json"
     try:
-        import time
         if cache_file.exists() and time.time() - cache_file.stat().st_mtime < INFO_CACHE_TTL_SECONDS:
             with open(cache_file) as f:
                 return json.load(f)
     except Exception:
         pass
-    t = yf.Ticker(symbol)
-    info = t.info or {}
+    info = _retry(lambda: yf.Ticker(symbol).info or {})
     try:
         INFO_CACHE_DIR.mkdir(parents=True, exist_ok=True)
         with open(cache_file, "w") as f:
@@ -139,8 +160,7 @@ def fetch_price_history_bulk(symbols: list, period: str = "3mo", chunk_size: int
 @lru_cache(maxsize=_RAM_CACHE_SIZE)
 def fetch_price_history(symbol: str, period: str = "6mo") -> pd.DataFrame:
     # Held entirely in RAM after the first fetch — no disk round-trip.
-    t = yf.Ticker(symbol)
-    df = t.history(period=period)
+    df = _retry(lambda: yf.Ticker(symbol).history(period=period))
     df.index = df.index.tz_localize(None)
     return df
 
@@ -148,7 +168,7 @@ def fetch_price_history(symbol: str, period: str = "6mo") -> pd.DataFrame:
 def fetch_vix() -> float:
     """Return latest VIX close. Falls back to 20.0 on failure."""
     try:
-        df = yf.Ticker("^VIX").history(period="5d")
+        df = _retry(lambda: yf.Ticker("^VIX").history(period="5d"))
         return float(df["Close"].iloc[-1])
     except Exception:
         return 20.0

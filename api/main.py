@@ -347,3 +347,12 @@ def snapshots(user: dict = Depends(get_current_user)):
 @app.get("/api/decisions")
 def decisions(user: dict = Depends(get_current_user)):
     return store.get_decisions(user["id"])
+
+
+@app.get("/api/scorecard")
+def scorecard(user: dict = Depends(get_current_user)):
+    """Grades the user's logged decisions: bought-pick paper returns, hit rate,
+    opportunity cost of passed picks, AI-score calibration, and an overall
+    decision-accuracy figure."""
+    from agents.scorecard import scorecard as build
+    return build(user["id"])

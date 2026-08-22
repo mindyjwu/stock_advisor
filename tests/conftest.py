@@ -46,8 +46,9 @@ def fresh_db(tmp_path, monkeypatch):
     store.init_db()
     community.init_community()
 
-    from agents import track_record
+    from agents import track_record, scorecard
     track_record.clear_cache()
+    scorecard.clear_cache()
     yield
 
 

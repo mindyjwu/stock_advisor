@@ -9,6 +9,7 @@ import {
   type Decision,
   type Position,
   type SellSignal,
+  type Scorecard,
 } from "@/lib/api";
 import { useAuthGuard } from "@/lib/useAuth";
 import Nav from "@/app/components/Nav";
@@ -66,6 +67,7 @@ export default function PortfolioPage() {
   const [snaps, setSnaps] = useState<Snapshot[]>([]);
   const [sugs, setSugs] = useState<Suggestion[]>([]);
   const [decisions, setDecisions] = useState<Decision[]>([]);
+  const [scorecard, setScorecard] = useState<Scorecard | null>(null);
   const [sells, setSells] = useState<SellSignal[] | null>(null);
   const [loadingSells, setLoadingSells] = useState(false);
 
@@ -79,16 +81,18 @@ export default function PortfolioPage() {
   }
 
   const load = useCallback(async () => {
-    const [h, s, g, d] = await Promise.all([
+    const [h, s, g, d, sc] = await Promise.all([
       api.holdings(),
       api.snapshots(),
       api.suggestions(),
       api.decisions(),
+      api.scorecard(),
     ]);
     setHoldings(h);
     setSnaps(s);
     setSugs(g);
     setDecisions(d);
+    setScorecard(sc);
   }, []);
 
   useEffect(() => {
@@ -256,6 +260,98 @@ export default function PortfolioPage() {
                 ))}
               </tbody>
             </table>
+          </div>
+        )}
+
+        {scorecard && scorecard.n_decisions > 0 && (
+          <div className="card">
+            <div className="section-title">🧭 Advisor scorecard</div>
+            <div className="muted" style={{ marginBottom: "0.7rem" }}>
+              How your logged calls actually did — returns measured from the price when you
+              made each decision.
+            </div>
+            <div className="row" style={{ gap: "0.85rem", flexWrap: "wrap" }}>
+              <div style={{ flex: 1, minWidth: 140 }}>
+                <div className="muted">Decision accuracy</div>
+                <div style={{ fontSize: "1.4rem", fontWeight: 800 }}>
+                  {scorecard.decision_accuracy != null ? `${Math.round(scorecard.decision_accuracy)}%` : "—"}
+                </div>
+              </div>
+              <div style={{ flex: 1, minWidth: 140 }}>
+                <div className="muted">Buy hit rate</div>
+                <div style={{ fontSize: "1.4rem", fontWeight: 800 }}>
+                  {scorecard.bought.hit_rate != null ? `${Math.round(scorecard.bought.hit_rate)}%` : "—"}
+                </div>
+              </div>
+              <div style={{ flex: 1, minWidth: 140 }}>
+                <div className="muted">Avg buy return</div>
+                <div
+                  className={
+                    scorecard.bought.avg_return != null
+                      ? scorecard.bought.avg_return >= 0
+                        ? "pos"
+                        : "neg"
+                      : ""
+                  }
+                  style={{ fontSize: "1.4rem", fontWeight: 800 }}
+                >
+                  {scorecard.bought.avg_return != null
+                    ? `${scorecard.bought.avg_return >= 0 ? "+" : ""}${scorecard.bought.avg_return}%`
+                    : "—"}
+                </div>
+              </div>
+              <div style={{ flex: 1, minWidth: 140 }}>
+                <div className="muted">Passed → winners</div>
+                <div style={{ fontSize: "1.4rem", fontWeight: 800 }}>
+                  {scorecard.passed.missed_winners}
+                  <span className="muted" style={{ fontSize: "0.8rem", fontWeight: 400 }}>
+                    {" "}
+                    / {scorecard.passed.n_priced}
+                  </span>
+                </div>
+              </div>
+            </div>
+            {scorecard.bought.best &&
+              scorecard.bought.worst &&
+              scorecard.bought.best.symbol !== scorecard.bought.worst.symbol && (
+                <div className="muted" style={{ marginTop: "0.7rem", fontSize: "0.85rem" }}>
+                  Best: <strong>{scorecard.bought.best.symbol}</strong>{" "}
+                  <span className="pos">
+                    {(scorecard.bought.best.return_pct ?? 0) >= 0 ? "+" : ""}
+                    {scorecard.bought.best.return_pct}%
+                  </span>{" "}
+                  · Worst: <strong>{scorecard.bought.worst.symbol}</strong>{" "}
+                  <span className="neg">{scorecard.bought.worst.return_pct}%</span>
+                </div>
+              )}
+            {scorecard.score_calibration.length >= 2 && (
+              <div style={{ marginTop: "0.85rem" }}>
+                <div className="muted" style={{ fontSize: "0.82rem", marginBottom: "0.3rem" }}>
+                  Does a higher AI score earn more? (avg return by score bucket)
+                </div>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.85rem" }}>
+                  <thead>
+                    <tr style={{ textAlign: "left", color: "#94a3b8" }}>
+                      <th>AI score</th>
+                      <th>Picks</th>
+                      <th>Avg return</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {scorecard.score_calibration.map((c) => (
+                      <tr key={c.bucket} style={{ borderTop: "1px solid #eef1f7" }}>
+                        <td>{c.bucket}</td>
+                        <td>{c.n}</td>
+                        <td className={c.avg_return >= 0 ? "pos" : "neg"}>
+                          {c.avg_return >= 0 ? "+" : ""}
+                          {c.avg_return}%
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         )}
 

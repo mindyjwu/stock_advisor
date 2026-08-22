@@ -134,6 +134,36 @@ export interface Decision {
   score: number | null;
   decided_at: string;
 }
+export interface ScorecardPick {
+  symbol: string;
+  decision: string | null;
+  action: string | null;
+  score: number | null;
+  entry: number | null;
+  current: number | null;
+  return_pct: number | null;
+}
+export interface Scorecard {
+  n_decisions: number;
+  n_bought: number;
+  n_passed: number;
+  bought: {
+    n_priced: number;
+    avg_return: number | null;
+    hit_rate: number | null;
+    best: ScorecardPick | null;
+    worst: ScorecardPick | null;
+  };
+  passed: {
+    n_priced: number;
+    avg_move: number | null;
+    missed_winners: number;
+    avoided_losers: number;
+  };
+  decision_accuracy: number | null;
+  score_calibration: { bucket: string; n: number; avg_return: number }[];
+  picks: ScorecardPick[];
+}
 export interface SellSignal {
   symbol: string;
   verdict: "Hold" | "Trim" | "Sell";
@@ -218,5 +248,6 @@ export const api = {
   suggestions: () => req<Suggestion[]>("/api/suggestions"),
   snapshots: () => req<Snapshot[]>("/api/performance/snapshots"),
   decisions: () => req<Decision[]>("/api/decisions"),
+  scorecard: () => req<Scorecard>("/api/scorecard"),
   sellSignals: () => req<SellSignal[]>("/api/holdings/sell-signals"),
 };
