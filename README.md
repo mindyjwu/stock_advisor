@@ -1,253 +1,102 @@
 # 📈 Stock Advisor
 
-An AI-powered, multi-user stock advisory dashboard built with Streamlit. It grades
-every stock on your watchlist with a transparent three-factor model, turns any cash
-deposit into a diversified buy plan in plain English, scans the S&P 500 for new ideas,
-and traces the supply chains of your best holdings to find niche picks.
+I spend a chunk of my actual job reading financial data and turning it into something a non-analyst can act on — first at KPMG building BI dashboards off retail sales data, now scoping AI systems for media clients. This is that instinct pointed at my own portfolio instead of a client's.
 
-> ⚠️ **Educational tool, not financial advice.** The scoring rules are transparent
-> heuristics based on common investing conventions — they have not been backtested,
-> and AI models can be wrong. Always do your own research before placing real trades.
+It's a multi-user stock advisory dashboard that grades every stock on your watchlist with a transparent three-factor model, turns a cash deposit into a diversified buy plan in plain English, scans the S&P 500 for new ideas, and traces the supply chains of your best holdings to find smaller companies riding the same trend.
 
-## Tech stack
+**⚠️ Educational tool, not financial advice.** The scoring rules are heuristics based on common investing conventions — not backtested, and the AI layer can be wrong like any model can. Do your own research before trading on anything this says.
 
-| Layer | Tech |
-|---|---|
-| Core app | Python, [Streamlit](https://streamlit.io) |
-| Market data | [yfinance](https://github.com/ranaroussi/yfinance) |
-| AI scoring | [Anthropic Claude](https://www.anthropic.com) (Sonnet / Opus / Haiku) |
-| Storage | SQLite by default, optional Postgres (`DATABASE_URL`) |
-| Optional API + web frontend | [FastAPI](https://fastapi.tiangolo.com) (`api/`) + [Next.js](https://nextjs.org)/TypeScript (`web/`) |
+## What it actually does
 
-The Streamlit app (`app/dashboard.py`) is the primary, fully-featured product —
-everything in **Features** below lives there. `api/` and `web/` are an optional
-second frontend for the community/social features only (see
-[Community web app](#community-web-app-optional)).
+- **Invest My Cash** — enter a deposit, pick a risk style, get a concrete buy plan: conviction-weighted dollars, per-stock and per-sector caps, a concentration guard so it won't tell you to buy more of what you already hold too much of, and a copy-paste order checklist.
+- **Three-factor scoring** — every stock gets 0–100 grades across Company Health (P/E, PEG, revenue growth, margins, debt, ROE), Price Trend (RSI, MACD, moving averages, drawdown), and News Mood (Claude reads recent headlines and grades sentiment). A market-regime detector — VIX plus an AI read on the tape — decides how much weight each factor gets, or you can lock in your own mix.
+- **Agreement signal** — when all three models agree, the pick gets flagged; when they disagree, the position size shrinks automatically instead of me having to remember to be cautious.
+- **Market Scan** — a two-pass sweep of the S&P 500 (a cheap screen first, then one batched AI call on the shortlist so it doesn't burn API credits scoring 500 stocks individually), tagged by style and checked against what I already hold.
+- **Supply-chain discovery** — the part I'm most pleased with. It maps the supply chain behind your best-performing holdings (AI chips → datacenters → electricity, say) and surfaces smaller public companies riding the same trend, with every ticker checked against live data before it's shown to you.
+- **Whale Watch** — what well-known funds report owning via their public 13F filings (Buffett, Ackman, Burry, and others), diffed against their last filing so you can see what they added, trimmed, or dropped. Reference only — 13F data is up to 45 days stale by the time it's public, so it never feeds the scoring itself.
+- **A performance page that doesn't flatter me** — every past suggestion, tracked against what actually happened. If the model's wrong a lot in some window, that shows up here instead of getting quietly buried.
+- **Multi-user accounts**, salted password hashing, fully isolated data per user, and a broker-CSV/PDF import so you're not retyping your holdings by hand.
 
-## Features
+## Stack
 
-- **💰 Invest My Cash** — enter a deposit amount, pick a risk style (Cautious /
-  Balanced / Aggressive), and get a concrete buy plan: conviction-weighted dollars,
-  per-stock and per-sector caps, a concentration guard against over-buying what you
-  already hold, and a copy-paste order checklist.
-- **Three-factor scoring** — every stock gets 0–100 grades for
-  **🏥 Company Health** (P/E, PEG, revenue growth, margins, debt, ROE),
-  **📈 Price Trend** (RSI, MACD, moving averages, drawdown, choppiness), and
-  **📰 News Mood** (Claude reads recent headlines). A market-regime detector
-  (VIX + AI) sets the blend weights — or each user saves their own custom mix.
-- **Agreement signal** — picks where all three models agree are flagged
-  ✅; conflicting models flag ⚠️ and automatically shrink the position size.
-- **🔭 Market Scan** — two-pass scan of ~500 S&P stocks (cheap screen, then one
-  batched AI call for the shortlist), style-tagged (Value / Growth / Momentum /
-  Quality / Dividend), sector-diversified, and personalized against your portfolio.
-  Click any row for a deep-dive with chart, stats, and news.
-- **🔗 Supply-chain discovery** — AI maps the supply chains of your best-performing
-  holdings (e.g. AI chips → datacenters → electricity) and suggests smaller public
-  companies riding the same trend; every ticker is validated against live data first.
-- **🔔 Alerts** — Strong-Buy flips, price-target hits, big daily moves, and scan
-  discoveries you don't own yet; optional macOS notification poller.
-- **🐋 Whale Watch** — what well-known investors' funds report owning, straight
-  from their public SEC 13F filings (Buffett, Ackman, Icahn, Burry, Druckenmiller,
-  Dalio, Tepper, Soros), with New/Added/Reduced/Sold-Out badges vs. their prior
-  filing and a cross-reference against your own watchlist. Reference only — it
-  never feeds into this app's own scoring, and 13F data is up to 45 days stale
-  by the time it's public. Includes a Trump/DJT card, since the President doesn't
-  file a 13F and there's no equivalent structured feed for his holdings.
-- **📊 Performance** — the honest report card: how every past suggestion actually
-  did, across multiple time windows.
-- **📖 How It Works** — the full scoring rulebook in plain English, plus per-user
-  factor-weight controls.
-- **Multi-user accounts** — sign-up/sign-in with salted PBKDF2 password hashing;
-  every user's watchlist, holdings, history, scans, and settings are fully isolated.
-- **Broker import** — upload a Chase / J.P. Morgan positions CSV or PDF to populate
-  your portfolio.
+Python + Streamlit for the core app, `yfinance` for market data, Claude (Sonnet/Opus/Haiku, switchable per session) for the AI scoring layer, SQLite by default with an optional Postgres backend. There's also an optional second frontend — a FastAPI + Next.js community app — for the social features (leaderboard, threads, shared watchlists) if you want a lighter browser-native surface for those without the full analysis dashboard. See `api/README.md` and `web/README.md` for that half.
 
 ## Quick start
-
-Requires **Python 3.9+**.
 
 ```bash
 git clone https://github.com/mindyjwu/stock_advisor.git
 cd stock_advisor
-python3 -m venv .venv
-source .venv/bin/activate
+python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
-# Optional but recommended — enables News Mood, regime detection,
-# and supply-chain discovery:
+# optional but recommended — enables News Mood, regime detection,
+# and supply-chain discovery
 echo "ANTHROPIC_API_KEY=sk-ant-..." > .env
 
 streamlit run app/dashboard.py
 ```
 
-Then open http://localhost:8501 and **create your account**.
+Open `http://localhost:8501` and create an account. **The first account created becomes the app owner** and inherits any pre-existing single-user data — make your own account before sharing the app with anyone else.
 
-> **Important:** the *first* account ever created becomes the app **owner** and
-> inherits any pre-existing single-user data (legacy `data/*.json` files and
-> database history). Create your own account before sharing the app with others.
-> Later accounts start fresh with a small example watchlist.
-
-## Screens
-
-- **Dashboard** — portfolio KPIs, an equity-curve chart, your logged buy/pass
-  decisions, and the performance report card.
-- **Stock Advisor** — your watchlist, scored and ranked, with the Invest My
-  Cash planner.
-- **Scan & Alerts** — the S&P 500 market scan, sell-signal review for your
-  holdings, and recent alerts.
-- **Community** — opt-in profiles, a verified-returns leaderboard, follow
-  feed, per-ticker discussion threads, and shared watchlists.
-- **Lists & History** — saved picks and full suggestion history.
-- **How It Works** — the scoring rulebook in plain English, plus per-user
-  factor-weight controls.
-- **Settings** — API key, broker CSV/PDF import, watchlist/holdings editing.
-
-## Community web app (optional)
-
-The social/community features also have a second, standalone frontend: a
-[FastAPI](api/) backend and a [Next.js](web/) web app, talking to the same
-accounts and database as the Streamlit app. This is optional — the Streamlit
-app is fully self-contained — but useful if you want a lighter-weight,
-browser-native UI for the community surface (feed, leaderboard, threads,
-shared watchlists) without the rest of the analysis dashboard.
-
-```bash
-# Terminal 1 — API (from the repo root, after installing requirements.txt)
-pip install -r api/requirements.txt
-uvicorn api.main:app --reload --port 8000
-
-# Terminal 2 — web app
-cd web
-npm install
-cp .env.local.example .env.local
-npm run dev   # http://localhost:3000
-```
-
-See [`api/README.md`](api/README.md) and [`web/README.md`](web/README.md) for
-endpoints, config, and screen-by-screen details.
-
-## How the recommendation engine works
+## How the scoring actually blends
 
 ```
-Market data (yfinance)          Market regime (VIX + AI)
-   │                                  │
-   ├─► 🏥 Company Health ─┐           │  sets the blend weights
-   ├─► 📈 Price Trend ────┼─► Blended score 0–100 ─► Strong Buy / Buy / Watch / Avoid
-   └─► 📰 News Mood ──────┘           │
-                                      ▼
-              ┌───────────────────────┼───────────────────────┐
-              ▼                       ▼                       ▼
-      Invest Cash plan            Scan picks               Alerts
-   (deposit → sized buys)   (styles + portfolio fit)  (flips, targets, finds)
-                                      │
-                                      ▼
-                          Performance report card
+Market data (yfinance)         Market regime (VIX + AI)
+        │                              │
+        ├─► Company Health ─┐          │ sets the blend weights
+        ├─► Price Trend ────┼─► Blended score 0–100 ─► Strong Buy / Buy / Watch / Avoid
+        └─► News Mood ──────┘
+                             │
+        ┌────────────────────┼────────────────────┐
+        ▼                    ▼                     ▼
+  Invest Cash plan       Scan picks              Alerts
 ```
 
-| Market mood | 🏥 Health | 📈 Trend | 📰 News |
+| Market mood | Company Health | Price Trend | News Mood |
 |---|---|---|---|
 | Calm (VIX < 18) | 50% | 30% | 20% |
 | Mixed (VIX 18–28) | 35% | 35% | 30% |
 | Stormy (VIX > 28) | 20% | 35% | 45% |
 
-Score thresholds: **75+** Strong Buy · **60+** Buy · **45+** Watch · below 45 Avoid.
-Users can override the weights per-account on the **How It Works** page.
+Thresholds: 75+ Strong Buy, 60+ Buy, 45+ Watch, below 45 Avoid. Weights are overridable per account.
 
-## Project layout
+## What's under the hood, if you want to poke around
 
 ```
 app/
-  dashboard.py      Streamlit UI — all pages
-  auth.py           Sign-in / sign-up gate
-agents/
-  fundamentals.py   🏥 Company Health rubric
-  technicals.py     📈 Price Trend indicators
-  sentiment.py      📰 News Mood (batched Claude calls)
-  regime.py         Market regime detection + score blending
-  allocator.py      Deposit → diversified buy plan
-  screener.py       Style tagging + sector-diverse shortlists
-  supply_chain.py   AI supply-chain niche discovery
-  sell_signals.py   🔻 When-to-sell engine for holdings
-  track_record.py   Cached verified-return metric (leaderboard)
-  alerts.py         Alert trigger rules
-  whale_watch.py    SEC 13F fetch/parse/diff for the Whale Watch page
-scripts/
-  run_analysis.py       Watchlist analysis pipeline (parallel)
-  market_scan.py        Two-pass S&P 500 scan (bulk downloads)
-  alert_poller.py       Background market-hours alert poller (owner, desktop)
-  run_alerts.py         One-shot, multi-user email alert runner (cron-friendly)
-  migrate_to_postgres.py  Copy an existing SQLite DB into Postgres
-data/
-  loader.py         Market data fetching + per-user storage
-  sp500.py          S&P 500 universe
-  pdf_import.py     Chase/JPM PDF statement parser
-db/
-  connection.py     Backend abstraction (SQLite default, Postgres via DATABASE_URL)
-  store.py          Suggestions, picks, alerts, scans, snapshots, decisions, imports
-  users.py          Accounts + PBKDF2 auth + login lockout
-  community.py      Profiles, follows, posts, likes, shared lists, blocks, reports
-api/                FastAPI backend over the same engine (see api/README.md)
-web/                Next.js community frontend (see web/README.md)
-tests/              pytest suite (runs on SQLite and Postgres)
+  dashboard.py        Streamlit UI
+  auth.py              Sign-in / sign-up
+  agents/              fundamentals.py, technicals.py, sentiment.py, regime.py,
+                        allocator.py, screener.py, supply_chain.py,
+                        sell_signals.py, track_record.py, alerts.py, whale_watch.py
+scripts/               run_analysis.py, market_scan.py, alert_poller.py,
+                        run_alerts.py, migrate_to_postgres.py
+data/                  loader.py, sp500.py, pdf_import.py
+db/                    connection.py, store.py, users.py, community.py
+api/ + web/            optional FastAPI + Next.js community frontend
+tests/                 pytest, runs against both SQLite and Postgres
 ```
 
-## Development & testing
+## Development & CI
 
 ```bash
 pip install -r requirements-dev.txt
-pytest                              # runs against SQLite
-DATABASE_URL=postgresql://… pytest  # also runs against Postgres
+pytest                                    # against SQLite
+DATABASE_URL=postgresql://… pytest        # also against Postgres
 ```
 
-CI (`.github/workflows/ci.yml`) runs the suite on **both** SQLite and a Postgres
-service, plus the web `next build`, on every push and PR. Dependencies are
-pinned (`requirements.txt`) so installs are reproducible.
+CI runs the suite against both databases plus a `web` build on every push. Dependencies are pinned so installs stay reproducible.
 
-## Deployment
+## Deployment notes
 
-- **SQLite (default)** — zero config; state lives in `db/advisor.db` + per-user
-  JSON. Host on a machine with a **persistent disk**; ephemeral platforms wipe
-  accounts on restart.
-- **Postgres** — set `DATABASE_URL`; migrate existing data with
-  `python3 scripts/migrate_to_postgres.py`. Recommended for real/concurrent use.
-- **Docker** — `cp .env.docker.example .env`, set `API_SECRET` +
-  `ANTHROPIC_API_KEY`, then `docker compose up --build` brings up Postgres, the
-  API (`:8000`), Streamlit (`:8501`), and the web app (`:3000`).
-- **Security** — set a strong `API_SECRET` for the API (it refuses to start with
-  the dev default when `APP_ENV=production`); accounts lock for 15 min after 5
-  failed logins.
-- **Email alerts** — alerts always show in-app. To also deliver them by email,
-  set the SMTP variables and run the alert job on a schedule:
+- **SQLite** (default) — zero config, but state lives on disk, so host somewhere with a persistent volume. Ephemeral platforms wipe accounts on restart.
+- **Postgres** — set `DATABASE_URL`; there's a migration script for moving existing SQLite data over.
+- **Docker** — `docker compose up --build` brings up Postgres, the API, Streamlit, and the web app together.
+- Set a real `API_SECRET` before running with `APP_ENV=production` — it refuses to boot on the dev default.
+- Email alerts are optional (SMTP env vars); without them, alerts still show in-app, they just don't get emailed.
 
-  ```bash
-  # SMTP config (e.g. Gmail app-password, SendGrid, SES…)
-  SMTP_HOST=smtp.gmail.com
-  SMTP_PORT=587            # STARTTLS; set SMTP_USE_TLS=0 for a plain server
-  SMTP_USER=bot@example.com
-  SMTP_PASSWORD=your-app-password
-  SMTP_FROM=bot@example.com   # defaults to SMTP_USER
+## Honest limitations
 
-  # Run once (drive it from cron / a systemd timer), e.g. every 15 min on
-  # weekdays during US market hours (times in UTC):
-  */15 13-20 * * 1-5   cd /app && python -m scripts.run_alerts
-  ```
-
-  Each user opts in under **Settings → Email Alerts** with their address. The job
-  re-prices their latest suggestions, fires target-hit / big-move / Strong-Buy-flip
-  alerts, dedupes per day, and emails only what's new. Without SMTP configured the
-  job still logs alerts in-app — it just skips the email.
-
-## Configuration notes
-
-- **AI model** — pick Sonnet / Opus / Haiku from the sidebar; the key lives in
-  `.env` (`ANTHROPIC_API_KEY`) and is managed by the owner. Without a key the app
-  still works: sentiment scores neutral and regime falls back to the VIX rule.
-- **Data privacy** — holdings, per-user data, the SQLite DB, and `.env` are all
-  gitignored; nothing personal is committed.
-- **Costs** — analyses use one batched Claude call for sentiment; the market scan
-  adds one more; supply-chain discovery is one call per click. All users share the
-  owner's API key.
-- **Hosting caveat** — with the default SQLite backend, state lives in SQLite +
-  JSON files on disk, so host on a machine with a persistent disk. For
-  hosted/ephemeral platforms, use **Postgres** (`DATABASE_URL`) so accounts and
-  portfolios survive restarts. See the **Deployment** section above.
+- The AI model picked in the sidebar and the API key both live at the owner level right now — every user on a shared deployment shares one key.
+- Sentiment scoring falls back to neutral without an API key, and regime detection falls back to the plain VIX rule.
+- This has never been backtested against a real trading account. Treat the grades as a structured opinion, not a signal.
