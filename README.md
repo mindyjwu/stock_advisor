@@ -1,6 +1,6 @@
 # 📈 Stock Advisor
 
-I spend a chunk of my actual job reading financial data and turning it into something a non-analyst can act on — first at KPMG building BI dashboards off retail sales data, now scoping AI systems for media clients. This is that instinct pointed at my own portfolio instead of a client's.
+I spend a chunk of my actual job reading data and turning it into information a non-analyst can act on — first at KPMG building BI dashboards off retail sales data, now scoping AI systems for media clients. This is that instinct pointed at my own portfolio instead of a client's.
 
 It's a multi-user stock advisory dashboard that grades every stock on your watchlist with a transparent three-factor model, turns a cash deposit into a diversified buy plan in plain English, scans the S&P 500 for new ideas, and traces the supply chains of your best holdings to find smaller companies riding the same trend.
 
