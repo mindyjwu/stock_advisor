@@ -1,0 +1,624 @@
+<title>Mindy's Stock Advisor</title>
+<meta name="description" content="An interactive concept demo of an AI-scored, socially-driven stock research app — all sample data, no live trading.">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap');
+  /* ============================ THEME TOKENS ============================ */
+  :root{
+    --bg:#f6f8fc; --surface:#ffffff; --surface-2:#f1f4fa; --border:#e6eaf2;
+    --ink:#0f172a; --muted:#5d6b82; --faint:#8a97ad;
+    --accent:#1e40af; --accent-2:#aeb8c7; --accent-soft:#e8eefb; --accent-ink:#1e3a8a;
+    --chrome:linear-gradient(150deg,#fbfcfe 0%,#cfd6e2 20%,#9aa6b8 50%,#cbd3df 78%,#f4f7fb 100%);
+    --blue-chrome:linear-gradient(155deg,#5b8def 0%,#2657c9 40%,#1e40af 68%,#16224f 100%);
+    --blue-fill:linear-gradient(90deg,#1e40af,#2f6bed 55%,#5b8def);
+    --green:#15803d; --green-soft:#dcfce7; --red:#dc2626; --red-soft:#fde8e8;
+    --amber:#b45309; --amber-soft:#fef3c7;
+    --hero-bg:#0b0e15; --hero-panel:#141926; --hero-border:#242c3d;
+    --hero-ink:#eef1f8; --hero-muted:#98a5bb; --hero-faint:#5f6c84;
+    --shadow:0 1px 2px rgba(16,24,40,.05), 0 8px 24px -18px rgba(16,24,40,.25);
+    --radius:16px;
+  }
+  :root:not([data-theme="light"]){ }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#090b11; --surface:#111621; --surface-2:#161c28; --border:#242c3b;
+      --ink:#e9edf5; --muted:#93a0b6; --faint:#6b7890;
+      --accent:#60a5fa; --accent-2:#aab6c6; --accent-soft:#16202f; --accent-ink:#93c5fd;
+      --green:#4ade80; --green-soft:#0f2a1b; --red:#f87171; --red-soft:#2c1618;
+      --amber:#fbbf24; --amber-soft:#2b2210;
+      --hero-bg:#05070c; --hero-panel:#0f1421; --hero-border:#1f2735;
+      --shadow:0 1px 2px rgba(0,0,0,.4), 0 12px 30px -20px rgba(0,0,0,.7);
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#090b11; --surface:#111621; --surface-2:#161c28; --border:#242c3b;
+    --ink:#e9edf5; --muted:#93a0b6; --faint:#6b7890;
+    --accent:#818cf8; --accent-2:#a78bfa; --accent-soft:#1c2030; --accent-ink:#a9b4fc;
+    --green:#4ade80; --green-soft:#0f2a1b; --red:#f87171; --red-soft:#2c1618;
+    --amber:#fbbf24; --amber-soft:#2b2210;
+    --hero-bg:#05070c; --hero-panel:#0f1421; --hero-border:#1f2735;
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 12px 30px -20px rgba(0,0,0,.7);
+  }
+
+  /* ============================ BASE ============================ */
+  *{box-sizing:border-box}
+  body{
+    background:var(--bg); color:var(--ink);
+    font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    line-height:1.55; -webkit-font-smoothing:antialiased;
+  }
+  h1,h2,h3{font-family:"Bricolage Grotesque",Inter,sans-serif; text-wrap:balance; margin:0; letter-spacing:-.01em}
+  .mono{font-family:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace; font-variant-numeric:tabular-nums}
+  a{color:var(--accent-ink); text-decoration:none}
+  a:hover{text-decoration:underline}
+  .wrap{max-width:1120px; margin:0 auto; padding-inline:20px}
+  .pos{color:var(--green); font-weight:700} .neg{color:var(--red); font-weight:700}
+
+  /* ============================ HEADER ============================ */
+  header.bar{
+    position:sticky; top:env(safe-area-inset-top,0px); z-index:20;
+    background:color-mix(in srgb, var(--bg) 88%, transparent);
+    backdrop-filter:saturate(1.4) blur(10px);
+    border-bottom:1px solid var(--border);
+  }
+  .bar .wrap{display:flex; align-items:center; gap:12px; padding-block:11px}
+  .brand{display:flex; align-items:center; gap:9px; font-family:"Bricolage Grotesque"; font-weight:800; font-size:1.05rem; letter-spacing:-.02em}
+  .brand .dot{width:22px; height:22px; border-radius:7px; display:grid; place-items:center; color:#eaf1ff;
+    background:var(--blue-chrome); box-shadow:inset 0 1px 0 rgba(255,255,255,.35), 0 1px 2px rgba(0,0,0,.3);
+    font-size:.8rem; font-weight:800}
+  .brand small{font-family:Inter; font-weight:600; font-size:.62rem; letter-spacing:.09em; text-transform:uppercase;
+    color:var(--accent-ink); background:var(--accent-soft); padding:2px 7px; border-radius:999px}
+  .bar .right{margin-left:auto; display:flex; align-items:center; gap:8px}
+  .ghost{font:inherit; cursor:pointer; border:1px solid var(--border); background:var(--surface); color:var(--muted);
+    border-radius:10px; padding:7px 12px; font-weight:600; font-size:.85rem; display:inline-flex; align-items:center; gap:6px}
+  .ghost:hover{color:var(--accent-ink); border-color:var(--accent); text-decoration:none}
+  .icon-btn{width:38px; height:38px; padding:0; justify-content:center}
+
+  /* ============================ HERO ============================ */
+  .hero{background:var(--hero-bg); color:var(--hero-ink); position:relative; overflow:hidden}
+  .hero::before{content:""; position:absolute; inset:0;
+    background:radial-gradient(58% 88% at 84% -12%, rgba(37,87,201,.42), transparent 60%),
+               radial-gradient(54% 76% at 6% 118%, rgba(203,213,225,.16), transparent 62%);}
+  .hero .wrap{position:relative; display:grid; grid-template-columns:1.15fr .85fr; gap:40px;
+    align-items:center; padding-block:64px}
+  .eyebrow{font-size:.72rem; font-weight:700; letter-spacing:.14em; text-transform:uppercase; color:var(--hero-muted); margin-bottom:18px}
+  .eyebrow b{color:var(--accent-2)}
+  .hero h1{font-size:clamp(2.1rem,5.2vw,3.5rem); line-height:1.03; font-weight:800}
+  .hero h1 em{font-style:normal; color:transparent; background:linear-gradient(118deg,#f4f7fb,#b7c2d4 30%,#5b8def 66%,#1e40af);
+    -webkit-background-clip:text; background-clip:text}
+  .hero p.lede{color:var(--hero-muted); font-size:1.08rem; max-width:34ch; margin:18px 0 26px}
+  .hero .cta{display:flex; flex-wrap:wrap; gap:12px}
+  .btn{font:inherit; cursor:pointer; border-radius:12px; padding:12px 20px; font-weight:700; font-size:.95rem;
+    border:1px solid transparent; display:inline-flex; align-items:center; gap:8px}
+  .btn.primary{background:var(--blue-chrome); color:#fff; box-shadow:inset 0 1px 0 rgba(255,255,255,.28), 0 6px 16px -8px rgba(30,64,175,.7)}
+  .btn.primary:hover{opacity:.94; text-decoration:none; filter:brightness(1.06)}
+  .btn.line{background:transparent; border-color:var(--hero-border); color:var(--hero-ink)}
+  .btn.line:hover{border-color:var(--accent-2); text-decoration:none}
+  .hero .stats{display:flex; gap:26px; margin-top:34px; flex-wrap:wrap}
+  .hero .stats b{font-family:"Bricolage Grotesque"; font-size:1.5rem; font-weight:800; display:block; line-height:1}
+  .hero .stats span{font-size:.74rem; color:var(--hero-faint); letter-spacing:.02em}
+
+  /* floating preview card */
+  .glass{background:linear-gradient(180deg,var(--hero-panel),color-mix(in srgb,var(--hero-panel) 70%,#000));
+    border:1px solid var(--hero-border); border-radius:20px; padding:18px; box-shadow:0 30px 60px -30px rgba(0,0,0,.8)}
+  .glass .gh{display:flex; align-items:center; gap:10px; margin-bottom:14px}
+  .glass .tk{font-family:"Bricolage Grotesque"; font-weight:800; font-size:1.15rem}
+  .glass .co{color:var(--hero-faint); font-size:.78rem}
+  .verdict{margin-left:auto; font-weight:800; font-size:.72rem; letter-spacing:.05em; text-transform:uppercase;
+    padding:5px 11px; border-radius:999px; background:rgba(74,222,128,.14); color:#6ee7b7; border:1px solid rgba(110,231,183,.3)}
+  .scorewrap{display:flex; align-items:center; gap:16px; margin:6px 0 16px}
+  .ring{--v:87; width:74px; height:74px; border-radius:50%; flex:none;
+    background:conic-gradient(var(--accent) calc(var(--v)*1%), rgba(255,255,255,.09) 0);
+    display:grid; place-items:center}
+  .ring i{width:56px; height:56px; border-radius:50%; background:var(--hero-panel); display:grid; place-items:center;
+    font-family:"Bricolage Grotesque"; font-weight:800; font-size:1.35rem; font-style:normal}
+  .factor{margin:9px 0}
+  .factor .fl{display:flex; justify-content:space-between; font-size:.74rem; color:var(--hero-muted); margin-bottom:4px}
+  .factor .track{height:7px; border-radius:99px; background:rgba(255,255,255,.08); overflow:hidden}
+  .factor .fill{height:100%; border-radius:99px; background:var(--blue-fill)}
+  .glass .foot{display:flex; justify-content:space-between; margin-top:14px; padding-top:13px; border-top:1px solid var(--hero-border); font-size:.82rem}
+  .glass .foot .mono{color:var(--hero-ink)}
+
+  /* ============================ SECTIONS ============================ */
+  section{padding-block:52px}
+  .note{background:var(--amber-soft); border:1px solid color-mix(in srgb,var(--amber) 40%,transparent); color:var(--amber);
+    border-radius:12px; padding:11px 15px; font-size:.83rem; display:flex; gap:9px; align-items:center; font-weight:500}
+  .kicker{font-size:.72rem; font-weight:700; letter-spacing:.13em; text-transform:uppercase; color:var(--accent-ink); margin-bottom:10px}
+  .sec-head{max-width:60ch; margin-bottom:26px}
+  .sec-head h2{font-size:clamp(1.5rem,3.4vw,2.05rem); font-weight:800}
+  .sec-head p{color:var(--muted); margin:10px 0 0}
+
+  /* demo panel */
+  .demo{background:var(--surface); border:1px solid var(--border); border-radius:22px; box-shadow:var(--shadow); overflow:hidden}
+  .tabs{display:flex; gap:4px; padding:10px; background:var(--surface-2); border-bottom:1px solid var(--border); overflow-x:auto}
+  .tab{font:inherit; white-space:nowrap; cursor:pointer; border:1px solid transparent; background:transparent; color:var(--muted);
+    border-radius:11px; padding:9px 15px; font-weight:600; font-size:.9rem; display:inline-flex; gap:7px; align-items:center}
+  .tab:hover{color:var(--ink)}
+  .tab[aria-selected="true"]{background:var(--surface); color:var(--accent-ink); border-color:var(--border); box-shadow:0 1px 2px rgba(16,24,40,.06)}
+  .panel{padding:22px}
+  @media(max-width:640px){ .panel{padding:16px} }
+
+  .chip{display:inline-block; background:var(--accent-soft); color:var(--accent-ink); border-radius:999px;
+    padding:2px 9px; font-size:.7rem; font-weight:700}
+  .pill{font-size:.7rem; font-weight:700; letter-spacing:.03em; text-transform:uppercase; padding:4px 10px; border-radius:999px; white-space:nowrap}
+  .pill.buy,.pill.hold-good{background:var(--green-soft); color:var(--green)}
+  .pill.hold{background:var(--surface-2); color:var(--muted)}
+  .pill.trim{background:var(--amber-soft); color:var(--amber)}
+  .pill.sell,.pill.reduce{background:var(--red-soft); color:var(--red)}
+  .pill.new{background:var(--accent-soft); color:var(--accent-ink)}
+  .pill.added{background:var(--green-soft); color:var(--green)}
+  .pill.reduced{background:var(--amber-soft); color:var(--amber)}
+  .pill.soldout{background:var(--red-soft); color:var(--red)}
+
+  /* advisor */
+  .adv{display:grid; grid-template-columns:1fr .9fr; gap:20px}
+  @media(max-width:760px){ .adv{grid-template-columns:1fr} }
+  .wl{display:flex; flex-direction:column; gap:6px}
+  .wl .regime{display:flex; align-items:center; gap:8px; font-size:.8rem; color:var(--muted); margin-bottom:6px}
+  .wl .regime b{color:var(--green)}
+  .row-t{display:grid; grid-template-columns:auto 1fr auto auto; gap:12px; align-items:center; width:100%;
+    text-align:left; font:inherit; cursor:pointer; background:var(--surface); border:1px solid var(--border);
+    border-radius:13px; padding:11px 13px; transition:border-color .15s, background .15s}
+  .row-t:hover{border-color:var(--accent)}
+  .row-t[aria-pressed="true"]{border-color:var(--accent); background:var(--accent-soft)}
+  .row-t .sym{font-family:"Bricolage Grotesque"; font-weight:800; font-size:1rem}
+  .row-t .nm{font-size:.72rem; color:var(--faint)}
+  .spark{width:88px; height:30px}
+  .scoreb{font-family:"Bricolage Grotesque"; font-weight:800; font-size:1.15rem; min-width:2ch; text-align:right}
+  .detail{background:var(--surface-2); border:1px solid var(--border); border-radius:16px; padding:18px}
+  .detail .dh{display:flex; align-items:baseline; gap:10px; margin-bottom:4px}
+  .detail .dh .sym{font-family:"Bricolage Grotesque"; font-weight:800; font-size:1.5rem}
+  .fbar{margin:13px 0}
+  .fbar .fl{display:flex; justify-content:space-between; font-size:.78rem; color:var(--muted); margin-bottom:5px}
+  .fbar .fl b{color:var(--ink)}
+  .fbar .track{height:9px; border-radius:99px; background:var(--border); overflow:hidden}
+  .fbar .fill{height:100%; border-radius:99px; background:var(--blue-fill)}
+  .kv{display:flex; justify-content:space-between; padding:7px 0; border-top:1px dashed var(--border); font-size:.86rem}
+  .kv:first-of-type{border-top:none}
+  .kv span{color:var(--muted)}
+  .reasons{margin:12px 0 0; padding:0; list-style:none; display:flex; flex-direction:column; gap:6px}
+  .reasons li{font-size:.83rem; color:var(--muted); padding-left:18px; position:relative}
+  .reasons li::before{content:"›"; position:absolute; left:4px; color:var(--accent); font-weight:800}
+
+  /* generic table */
+  table{width:100%; border-collapse:collapse; font-size:.88rem}
+  th{text-align:left; font-size:.72rem; letter-spacing:.04em; text-transform:uppercase; color:var(--faint); font-weight:700; padding:8px 10px}
+  td{padding:11px 10px; border-top:1px solid var(--border); vertical-align:middle}
+  tbody tr:hover{background:var(--surface-2)}
+  .tblwrap{overflow-x:auto}
+  .meter{width:88px; height:8px; border-radius:99px; background:var(--border); overflow:hidden; display:inline-block; vertical-align:middle}
+  .meter i{display:block; height:100%; border-radius:99px}
+
+  /* whale */
+  .selectrow{display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:16px}
+  select{font:inherit; padding:9px 12px; border-radius:11px; border:1px solid var(--border); background:var(--surface); color:var(--ink); font-weight:600}
+  .whale-meta{display:flex; gap:20px; flex-wrap:wrap; margin-bottom:14px; font-size:.83rem; color:var(--muted)}
+  .whale-meta b{color:var(--ink); font-family:"Bricolage Grotesque",Inter,sans-serif}
+
+  /* community */
+  .comm{display:grid; grid-template-columns:1fr .95fr; gap:20px}
+  @media(max-width:760px){ .comm{grid-template-columns:1fr} }
+  .lb{display:flex; flex-direction:column; gap:2px}
+  .lb .lr{display:grid; grid-template-columns:auto auto 1fr auto; gap:12px; align-items:center; padding:11px 8px; border-top:1px solid var(--border)}
+  .lb .lr:first-child{border-top:none}
+  .lb .rk{font-family:"Bricolage Grotesque"; font-weight:800; color:var(--faint); width:1.6rem}
+  .lb .av{font-size:1.4rem}
+  .lb .hn{font-weight:700} .lb .hs{font-size:.73rem; color:var(--faint)}
+  .lb .me{background:var(--accent-soft); border-radius:12px}
+  .post{border:1px solid var(--border); border-radius:14px; padding:13px 15px; margin-bottom:10px; background:var(--surface)}
+  .post .ph{display:flex; align-items:center; gap:9px; margin-bottom:7px; font-size:.85rem}
+  .post .ph b{font-weight:700} .post .ph .t{color:var(--faint); font-size:.75rem; margin-left:auto}
+  .post .cash{font-family:"JetBrains Mono"; font-weight:700; color:var(--accent-ink); background:var(--accent-soft); padding:1px 7px; border-radius:6px; font-size:.78rem}
+
+  /* scorecard */
+  .cards4{display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:20px}
+  @media(max-width:640px){ .cards4{grid-template-columns:repeat(2,1fr)} }
+  .stat{background:var(--surface-2); border:1px solid var(--border); border-radius:14px; padding:14px}
+  .stat .lab{font-size:.74rem; color:var(--muted); margin-bottom:6px}
+  .stat b{font-family:"Bricolage Grotesque"; font-size:1.7rem; font-weight:800; line-height:1}
+
+  /* how it works */
+  .how{display:grid; grid-template-columns:repeat(3,1fr); gap:16px}
+  @media(max-width:760px){ .how{grid-template-columns:1fr} }
+  .fcard{background:var(--surface); border:1px solid var(--border); border-radius:16px; padding:20px; box-shadow:var(--shadow)}
+  .fcard .ic{width:40px; height:40px; border-radius:11px; display:grid; place-items:center; font-size:1.2rem; margin-bottom:12px;
+    background:var(--accent-soft)}
+  .fcard h3{font-size:1.05rem; margin-bottom:6px}
+  .fcard p{color:var(--muted); font-size:.87rem; margin:0}
+  .fcard .w{font-size:.72rem; color:var(--accent-ink); font-weight:700; margin-top:10px}
+
+  /* stack */
+  .stack-sec{background:var(--surface); border-top:1px solid var(--border); border-bottom:1px solid var(--border)}
+  .stackgrid{display:grid; grid-template-columns:1.1fr 1fr; gap:34px; align-items:center}
+  @media(max-width:760px){ .stackgrid{grid-template-columns:1fr} }
+  .techs{display:flex; flex-wrap:wrap; gap:8px; margin-top:16px}
+  .techs span{font-family:"JetBrains Mono"; font-size:.8rem; font-weight:500; padding:6px 11px; border-radius:9px;
+    background:var(--surface-2); border:1px solid var(--border); color:var(--muted)}
+  .metrics{display:grid; grid-template-columns:1fr 1fr; gap:14px}
+  .metrics .m{background:var(--surface-2); border:1px solid var(--border); border-radius:14px; padding:16px}
+  .metrics .m b{font-family:"Bricolage Grotesque"; font-size:1.9rem; font-weight:800; display:block; line-height:1}
+  .metrics .m span{font-size:.78rem; color:var(--muted)}
+
+  /* footer */
+  footer{background:var(--hero-bg); color:var(--hero-muted); padding-block:40px; padding-bottom:calc(40px + env(safe-area-inset-bottom,0px))}
+  footer .wrap{display:flex; justify-content:space-between; align-items:center; gap:20px; flex-wrap:wrap}
+  footer .brand{color:var(--hero-ink)}
+  footer a{color:var(--hero-ink)}
+
+  @media(max-width:820px){
+    .hero .wrap{grid-template-columns:1fr; gap:32px; padding-block:44px}
+    .hero .glass{order:-1}
+  }
+  @media (prefers-reduced-motion:reduce){ *{transition:none!important} }
+  :focus-visible{outline:2px solid var(--accent); outline-offset:2px; border-radius:6px}
+</style>
+
+<header class="bar">
+  <div class="wrap">
+    <span class="brand"><span class="dot">▲</span> Stock&nbsp;Advisor <small>Concept demo</small></span>
+    <span class="right">
+      <button class="ghost icon-btn" id="theme" title="Toggle light / dark" aria-label="Toggle theme">🌗</button>
+      <a class="ghost" href="https://github.com/mindyjwu/stock_advisor" target="_blank" rel="noopener">★ Source</a>
+    </span>
+  </div>
+</header>
+
+<!-- ============================ HERO ============================ -->
+<div class="hero">
+  <div class="wrap">
+    <div>
+      <div class="eyebrow">AI research · <b>social investing</b> · built solo</div>
+      <h1>Every stock, scored. <em>Every call, kept honest.</em></h1>
+      <p class="lede">A research app that scores stocks on fundamentals, technicals and sentiment — then grades its own advice and lets a community follow the best track records.</p>
+      <div class="cta">
+        <a class="btn primary" href="#demo">▶ Explore the live demo</a>
+        <a class="btn line" href="https://github.com/mindyjwu/stock_advisor" target="_blank" rel="noopener">View the code</a>
+      </div>
+      <div class="stats">
+        <div><b>500+</b><span>S&P names screened</span></div>
+        <div><b>3-factor</b><span>AI scoring model</span></div>
+        <div><b>79</b><span>tests · CI green</span></div>
+      </div>
+    </div>
+
+    <!-- floating preview -->
+    <div class="glass" aria-hidden="true">
+      <div class="gh">
+        <span class="tk">NVDA</span><span class="co">NVIDIA Corp</span>
+        <span class="verdict">Strong Buy</span>
+      </div>
+      <div class="scorewrap">
+        <div class="ring" style="--v:87"><i>87</i></div>
+        <div style="flex:1">
+          <div class="factor"><div class="fl"><span>Fundamentals</span><span>82</span></div><div class="track"><div class="fill" style="width:82%"></div></div></div>
+          <div class="factor"><div class="fl"><span>Technicals</span><span>91</span></div><div class="track"><div class="fill" style="width:91%"></div></div></div>
+          <div class="factor"><div class="fl"><span>Sentiment</span><span>88</span></div><div class="track"><div class="fill" style="width:88%"></div></div></div>
+        </div>
+      </div>
+      <div class="foot">
+        <span class="co">Price → 12-mo target</span>
+        <span class="mono">$142.30 → $172.00 &nbsp;<span class="pos">+21%</span></span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="wrap" style="padding-top:22px">
+  <div class="note">⚠️ <span><b>Demo &amp; sample data only.</b> This is a portfolio prototype — figures are illustrative, nothing here is a live quote or investment advice.</span></div>
+</div>
+
+<!-- ============================ DEMO ============================ -->
+<section id="demo" style="padding-top:30px">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="kicker">The product, clickable</div>
+      <h2>Five tools, one workspace</h2>
+      <p>The real app runs on Streamlit + a FastAPI/Next.js stack. Here's a faithful, static walkthrough of each screen — click around.</p>
+    </div>
+
+    <div class="demo">
+      <div class="tabs" role="tablist" aria-label="Demo screens">
+        <button class="tab" role="tab" aria-selected="true"  data-tab="advisor">🎯 AI Advisor</button>
+        <button class="tab" role="tab" aria-selected="false" data-tab="sell">🔻 When to Sell</button>
+        <button class="tab" role="tab" aria-selected="false" data-tab="whale">🐋 Whale Watch</button>
+        <button class="tab" role="tab" aria-selected="false" data-tab="community">👥 Community</button>
+        <button class="tab" role="tab" aria-selected="false" data-tab="scorecard">🧭 Scorecard</button>
+      </div>
+
+      <!-- ADVISOR -->
+      <div class="panel" id="p-advisor" role="tabpanel">
+        <div class="adv">
+          <div class="wl" id="wl">
+            <div class="regime">Market regime: <b>Risk-On</b> · VIX <span class="mono">14.2</span> · position sizing normal</div>
+            <!-- rows injected -->
+          </div>
+          <div class="detail" id="adv-detail"><!-- injected --></div>
+        </div>
+      </div>
+
+      <!-- SELL -->
+      <div class="panel" id="p-sell" role="tabpanel" hidden>
+        <p class="muted" style="color:var(--muted); font-size:.86rem; margin:0 0 14px">A sell-side review of holdings — stop-losses, stretched valuations, fading momentum and profit-taking, each with an urgency score.</p>
+        <div class="tblwrap"><table>
+          <thead><tr><th>Holding</th><th>Unrealized</th><th>Verdict</th><th>Urgency</th><th>Why</th></tr></thead>
+          <tbody id="sell-body"></tbody>
+        </table></div>
+      </div>
+
+      <!-- WHALE -->
+      <div class="panel" id="p-whale" role="tabpanel" hidden>
+        <div class="selectrow">
+          <label class="muted" for="whale-sel" style="color:var(--muted); font-size:.85rem">Institutional filer</label>
+          <select id="whale-sel"></select>
+          <span class="chip">from SEC 13F filings</span>
+        </div>
+        <div class="whale-meta" id="whale-meta"></div>
+        <div class="tblwrap"><table>
+          <thead><tr><th>Ticker</th><th>Issuer</th><th>Portfolio %</th><th>Value</th><th>Move</th></tr></thead>
+          <tbody id="whale-body"></tbody>
+        </table></div>
+      </div>
+
+      <!-- COMMUNITY -->
+      <div class="panel" id="p-community" role="tabpanel" hidden>
+        <div class="comm">
+          <div>
+            <h3 style="font-size:1.05rem; margin-bottom:4px">🏆 Verified-return leaderboard</h3>
+            <p class="muted" style="color:var(--muted); font-size:.8rem; margin:0 0 6px">Ranked by average return on members' own logged picks.</p>
+            <div class="lb" id="lb"></div>
+          </div>
+          <div>
+            <h3 style="font-size:1.05rem; margin-bottom:8px">💬 Feed</h3>
+            <div id="feed"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- SCORECARD -->
+      <div class="panel" id="p-scorecard" role="tabpanel" hidden>
+        <p class="muted" style="color:var(--muted); font-size:.86rem; margin:0 0 16px">The honest part: it grades the decisions you logged — not just the picks it liked.</p>
+        <div class="cards4">
+          <div class="stat"><div class="lab">Decision accuracy</div><b>68%</b></div>
+          <div class="stat"><div class="lab">Buy hit rate</div><b>61%</b></div>
+          <div class="stat"><div class="lab">Avg buy return</div><b class="pos">+14.2%</b></div>
+          <div class="stat"><div class="lab">Passed → winners</div><b>3<span style="font-size:.9rem;color:var(--faint);font-family:Inter">/11</span></b></div>
+        </div>
+        <h3 style="font-size:1rem; margin-bottom:4px">Is the AI score predictive?</h3>
+        <p class="muted" style="color:var(--muted); font-size:.8rem; margin:0 0 10px">If the model works, higher-scored buys should earn more. Read the trend, not one row.</p>
+        <div class="tblwrap"><table>
+          <thead><tr><th>AI score bucket</th><th>Picks</th><th>Avg return</th><th></th></tr></thead>
+          <tbody id="cal-body"></tbody>
+        </table></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ HOW ============================ -->
+<section style="padding-top:20px">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="kicker">Under the model</div>
+      <h2>How a stock earns its score</h2>
+      <p>Each name gets a 0–100 score blended from three lenses, then re-weighted by the market regime. No black box — every score opens to its reasons.</p>
+    </div>
+    <div class="how">
+      <div class="fcard"><div class="ic">📊</div><h3>Fundamentals</h3><p>Valuation, margins, revenue growth and balance-sheet health — the business behind the ticker.</p><div class="w">≈ 45% weight</div></div>
+      <div class="fcard"><div class="ic">📈</div><h3>Technicals</h3><p>Trend, momentum and moving-average posture from six months of price history.</p><div class="w">≈ 35% weight</div></div>
+      <div class="fcard"><div class="ic">🗞️</div><h3>Sentiment</h3><p>A single batched LLM pass over recent headlines, scored neutral when no key is set.</p><div class="w">≈ 20% weight</div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ STACK ============================ -->
+<section class="stack-sec">
+  <div class="wrap">
+    <div class="stackgrid">
+      <div>
+        <div class="kicker">Built &amp; shipped</div>
+        <h2 style="font-size:clamp(1.5rem,3.4vw,2.05rem); font-weight:800">One engine, three front ends</h2>
+        <p style="color:var(--muted); margin:12px 0 0; max-width:52ch">A shared Python core powers a Streamlit research dashboard, a FastAPI backend, and a Next.js community site — with a dual SQLite/Postgres data layer, server-side email alerts, and a test suite that runs on both databases in CI.</p>
+        <div class="techs">
+          <span>Python</span><span>Streamlit</span><span>FastAPI</span><span>Next.js</span><span>TypeScript</span><span>PostgreSQL</span><span>SQLite</span><span>yfinance</span><span>SEC EDGAR</span><span>Claude API</span><span>Docker</span><span>GitHub Actions</span>
+        </div>
+      </div>
+      <div class="metrics">
+        <div class="m"><b>79</b><span>automated tests, green on SQLite + Postgres</span></div>
+        <div class="m"><b>2</b><span>databases from one abstraction layer</span></div>
+        <div class="m"><b>5</b><span>tools: advisor, sell, whale, community, scorecard</span></div>
+        <div class="m"><b>100%</b><span>your holdings stay private &amp; per-user</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <span class="brand"><span class="dot">▲</span> Stock Advisor</span>
+    <span style="font-size:.85rem">A solo-built concept by <b style="color:var(--hero-ink)">Mindy</b> · sample data, not investment advice</span>
+    <a href="https://github.com/mindyjwu/stock_advisor" target="_blank" rel="noopener">github.com/mindyjwu/stock_advisor →</a>
+  </div>
+</footer>
+
+<script>
+/* ---------- theme toggle ---------- */
+(function(){
+  var root=document.documentElement, btn=document.getElementById('theme');
+  try{ var s=localStorage.getItem('sa-theme'); if(s) root.setAttribute('data-theme',s); }catch(e){}
+  btn.addEventListener('click',function(){
+    var cur=root.getAttribute('data-theme');
+    if(!cur){ cur = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark':'light'; }
+    var next = cur==='dark' ? 'light':'dark';
+    root.setAttribute('data-theme',next);
+    try{ localStorage.setItem('sa-theme',next); }catch(e){}
+  });
+})();
+
+/* ---------- data ---------- */
+var TICKERS=[
+  {s:"NVDA",n:"NVIDIA Corp",score:87,act:"Strong Buy",cls:"buy",f:82,t:91,se:88,px:142.30,tp:172.00,up:20.9,
+   pts:[100,103,101,108,112,110,118,124,121,130,138,142],
+   why:["Momentum leadership across the AI complex","Revenue growth +122% YoY, 55% net margins","Price 18% below mean analyst target"]},
+  {s:"MSFT",n:"Microsoft Corp",score:79,act:"Buy",cls:"buy",f:85,t:74,se:78,px:431.20,tp:470.00,up:9.0,
+   pts:[400,408,405,412,410,418,415,422,419,426,428,431],
+   why:["Durable cloud + Copilot monetization","High-quality balance sheet, wide moat","Uptrend intact, not overbought"]},
+  {s:"AAPL",n:"Apple Inc",score:71,act:"Buy",cls:"buy",f:76,t:68,se:70,px:228.50,tp:245.00,up:7.2,
+   pts:[210,214,212,218,222,219,224,221,226,224,227,228],
+   why:["Services mix lifting margins","Buybacks support per-share growth","Momentum cooling but positive"]},
+  {s:"JPM",n:"JPMorgan Chase",score:64,act:"Hold",cls:"hold",f:70,t:60,se:62,px:214.10,tp:220.00,up:2.8,
+   pts:[205,208,210,207,211,213,209,214,212,215,213,214],
+   why:["Cheap on earnings, strong ROE","Rate path a two-way risk","Near fair value — limited upside"]},
+  {s:"XOM",n:"Exxon Mobil",score:58,act:"Hold",cls:"hold",f:66,t:52,se:55,px:118.40,tp:122.00,up:3.0,
+   pts:[120,118,121,117,119,116,118,115,117,119,118,118],
+   why:["Solid cash returns and dividend","Trend flat, commodity-driven","Valuation full for the cycle"]},
+  {s:"DIS",n:"Walt Disney Co",score:44,act:"Reduce",cls:"reduce",f:48,t:40,se:45,px:96.20,tp:92.00,up:-4.4,
+   pts:[112,109,106,108,104,101,103,99,100,97,98,96],
+   why:["Streaming margins still thin","Downtrend below 200-day average","Below target — risk skewed down"]}
+];
+
+var HOLDINGS=[
+  {s:"NVDA",gl:137.4,v:"Hold",cls:"hold-good",u:18,why:"Strong momentum, still below 12-mo target"},
+  {s:"COST",gl:62.1,v:"Trim",cls:"trim",u:44,why:"Big winner — take some profit; valuation stretched"},
+  {s:"PTON",gl:-61.3,v:"Sell",cls:"sell",u:78,why:"Stop-loss breached · downtrend · weak fundamentals"},
+  {s:"XOM",gl:11.2,v:"Hold",cls:"hold",u:22,why:"In range, income intact — no action"}
+];
+
+var WHALES={
+  buffett:{name:"Warren Buffett",fund:"Berkshire Hathaway",filed:"2025-05-15",val:"$284.9B",n:41,pos:[
+    {t:"AAPL",i:"Apple Inc",p:26.2,v:"$74.6B",m:"Reduced",mc:"reduced"},
+    {t:"AXP",i:"American Express",p:15.1,v:"$43.0B",m:"Unchanged",mc:"hold"},
+    {t:"BAC",i:"Bank of America",p:11.3,v:"$32.2B",m:"Reduced",mc:"reduced"},
+    {t:"KO",i:"Coca-Cola Co",p:9.2,v:"$26.2B",m:"Unchanged",mc:"hold"},
+    {t:"CVX",i:"Chevron Corp",p:6.8,v:"$19.4B",m:"Added",mc:"added"},
+    {t:"OXY",i:"Occidental Petro",p:4.9,v:"$14.0B",m:"Added",mc:"added"}
+  ]},
+  burry:{name:"Michael Burry",fund:"Scion Asset Mgmt",filed:"2025-05-14",val:"$77.4M",n:7,pos:[
+    {t:"BABA",i:"Alibaba Group",p:21.3,v:"$16.5M",m:"Added",mc:"added"},
+    {t:"JD",i:"JD.com Inc",p:18.9,v:"$14.6M",m:"New",mc:"new"},
+    {t:"BIDU",i:"Baidu Inc",p:14.1,v:"$10.9M",m:"Unchanged",mc:"hold"},
+    {t:"HCA",i:"HCA Healthcare",p:9.8,v:"$7.6M",m:"Sold Out",mc:"soldout"},
+    {t:"BRKR",i:"Bruker Corp",p:8.2,v:"$6.3M",m:"New",mc:"new"}
+  ]},
+  ackman:{name:"Bill Ackman",fund:"Pershing Square",filed:"2025-05-15",val:"$12.1B",n:9,pos:[
+    {t:"BN",i:"Brookfield Corp",p:18.7,v:"$2.26B",m:"Added",mc:"added"},
+    {t:"UBER",i:"Uber Technologies",p:16.4,v:"$1.98B",m:"New",mc:"new"},
+    {t:"HHH",i:"Howard Hughes",p:13.9,v:"$1.68B",m:"Unchanged",mc:"hold"},
+    {t:"CMG",i:"Chipotle Mexican",p:12.1,v:"$1.46B",m:"Reduced",mc:"reduced"},
+    {t:"QSR",i:"Restaurant Brands",p:10.3,v:"$1.25B",m:"Unchanged",mc:"hold"}
+  ]}
+};
+
+var LEADERS=[
+  {a:"🐈",h:"@quantcat",n:12,r:34.2,me:false},
+  {a:"🦉",h:"@valuehunter",n:9,r:21.8,me:false},
+  {a:"🐬",h:"@mindy",n:15,r:18.5,me:true},
+  {a:"🐢",h:"@steadyeddie",n:7,r:12.1,me:false},
+  {a:"🦊",h:"@swingfox",n:11,r:8.4,me:false}
+];
+var FEED=[
+  {a:"🐈",h:"@quantcat",t:"2h",ticker:"NVDA",body:"Trimmed a little into strength but this is still my core AI hold. Score flipped Strong Buy again this morning."},
+  {a:"🐬",h:"@mindy",t:"5h",ticker:"COST",body:"Scorecard flagged COST as a Trim — up 62% and valuation's stretched. Taking a third off the table."},
+  {a:"🦉",h:"@valuehunter",t:"1d",ticker:"DIS",body:"Advisor put DIS at 44 (Reduce). Downtrend + thin streaming margins. Agree, stepping aside."}
+];
+var CALIB=[
+  {b:"75 +",n:5,r:22.4},
+  {b:"60 – 75",n:6,r:9.1},
+  {b:"< 60",n:4,r:-3.2}
+];
+
+/* ---------- helpers ---------- */
+function spark(pts,down){
+  var W=88,H=30,p=3,min=Math.min.apply(null,pts),max=Math.max.apply(null,pts),span=(max-min)||1;
+  var col=down?'var(--red)':'var(--green)';
+  var c=pts.map(function(v,i){var x=p+(i/(pts.length-1))*(W-2*p);var y=H-p-((v-min)/span)*(H-2*p);return x.toFixed(1)+','+y.toFixed(1);}).join(' ');
+  return '<svg viewBox="0 0 '+W+' '+H+'" width="'+W+'" height="'+H+'" preserveAspectRatio="none"><polyline points="'+c+'" fill="none" stroke="'+col+'" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+}
+function scoreColor(v){ return v>=75?'var(--green)':v>=60?'var(--accent-ink)':v>=50?'var(--amber)':'var(--red)'; }
+
+/* ---------- advisor render ---------- */
+var wl=document.getElementById('wl'), sel=0;
+TICKERS.forEach(function(d,i){
+  var b=document.createElement('button');
+  b.className='row-t'; b.setAttribute('aria-pressed', i===0?'true':'false'); b.dataset.i=i;
+  b.innerHTML='<span><span class="sym">'+d.s+'</span><br><span class="nm">'+d.n+'</span></span>'+
+    '<span class="spark" data-i="'+i+'"></span>'+
+    '<span class="pill '+d.cls+'">'+d.act+'</span>'+
+    '<span class="scoreb" style="color:'+scoreColor(d.score)+'">'+d.score+'</span>';
+  b.addEventListener('click',function(){ sel=i; paintDetail(); document.querySelectorAll('.row-t').forEach(function(r){r.setAttribute('aria-pressed', r.dataset.i==i?'true':'false');}); });
+  wl.appendChild(b);
+});
+function paintSparks(){ document.querySelectorAll('.row-t .spark').forEach(function(el){ var d=TICKERS[el.dataset.i]; el.innerHTML=spark(d.pts, d.up<0); }); }
+function paintDetail(){
+  var d=TICKERS[sel];
+  document.getElementById('adv-detail').innerHTML=
+    '<div class="dh"><span class="sym">'+d.s+'</span><span class="pill '+d.cls+'">'+d.act+'</span>'+
+      '<span style="margin-left:auto" class="scoreb" style="color:'+scoreColor(d.score)+'">'+d.score+'/100</span></div>'+
+    '<div class="muted" style="color:var(--muted);font-size:.8rem;margin-bottom:6px">'+d.n+'</div>'+
+    ['Fundamentals','Technicals','Sentiment'].map(function(lab,k){var val=[d.f,d.t,d.se][k];
+      return '<div class="fbar"><div class="fl"><span>'+lab+'</span><b>'+val+'</b></div><div class="track"><div class="fill" style="width:'+val+'%"></div></div></div>';}).join('')+
+    '<div class="kv"><span>Current price</span><b class="mono">$'+d.px.toFixed(2)+'</b></div>'+
+    '<div class="kv"><span>12-mo target</span><b class="mono">$'+d.tp.toFixed(2)+'</b></div>'+
+    '<div class="kv"><span>Implied upside</span><b class="mono '+(d.up>=0?'pos':'neg')+'">'+(d.up>=0?'+':'')+d.up.toFixed(1)+'%</b></div>'+
+    '<ul class="reasons">'+d.why.map(function(w){return '<li>'+w+'</li>';}).join('')+'</ul>';
+}
+paintSparks(); paintDetail();
+
+/* ---------- sell render ---------- */
+document.getElementById('sell-body').innerHTML=HOLDINGS.map(function(h){
+  var col=h.u>=60?'var(--red)':h.u>=35?'var(--amber)':'var(--green)';
+  return '<tr><td><b class="sym" style="font-family:\'Bricolage Grotesque\'">'+h.s+'</b></td>'+
+    '<td class="mono '+(h.gl>=0?'pos':'neg')+'">'+(h.gl>=0?'+':'')+h.gl.toFixed(1)+'%</td>'+
+    '<td><span class="pill '+h.cls+'">'+h.v+'</span></td>'+
+    '<td><span class="meter"><i style="width:'+h.u+'%;background:'+col+'"></i></span> <span class="mono" style="font-size:.8rem;color:var(--muted)">'+h.u+'</span></td>'+
+    '<td class="muted" style="color:var(--muted);font-size:.83rem">'+h.why+'</td></tr>';
+}).join('');
+
+/* ---------- whale render ---------- */
+var wsel=document.getElementById('whale-sel');
+Object.keys(WHALES).forEach(function(k){ var o=document.createElement('option'); o.value=k; o.textContent=WHALES[k].name+' · '+WHALES[k].fund; wsel.appendChild(o); });
+function paintWhale(){
+  var w=WHALES[wsel.value];
+  document.getElementById('whale-meta').innerHTML=
+    '<div>Portfolio value <b>'+w.val+'</b></div><div>Positions <b>'+w.n+'</b></div><div>Filed <b class="mono">'+w.filed+'</b></div>';
+  document.getElementById('whale-body').innerHTML=w.pos.map(function(p){
+    return '<tr><td><b class="sym" style="font-family:\'Bricolage Grotesque\'">'+p.t+'</b></td>'+
+      '<td class="muted" style="color:var(--muted)">'+p.i+'</td>'+
+      '<td class="mono">'+p.p.toFixed(1)+'%</td>'+
+      '<td class="mono" style="color:var(--muted)">'+p.v+'</td>'+
+      '<td><span class="pill '+p.mc+'">'+p.m+'</span></td></tr>';
+  }).join('');
+}
+wsel.addEventListener('change',paintWhale); paintWhale();
+
+/* ---------- community render ---------- */
+document.getElementById('lb').innerHTML=LEADERS.map(function(l,i){
+  return '<div class="lr'+(l.me?' me':'')+'"><span class="rk">'+(i+1)+'</span><span class="av">'+l.a+'</span>'+
+    '<span><span class="hn">'+l.h+(l.me?' <span class="chip">you</span>':'')+'</span><br><span class="hs">'+l.n+' logged picks</span></span>'+
+    '<span class="pos mono">+'+l.r.toFixed(1)+'%</span></div>';
+}).join('');
+document.getElementById('feed').innerHTML=FEED.map(function(p){
+  return '<div class="post"><div class="ph"><span style="font-size:1.15rem">'+p.a+'</span><b>'+p.h+'</b>'+
+    '<span class="cash">$'+p.ticker+'</span><span class="t">'+p.t+'</span></div>'+
+    '<div style="font-size:.9rem">'+p.body+'</div></div>';
+}).join('');
+
+/* ---------- scorecard calibration ---------- */
+document.getElementById('cal-body').innerHTML=CALIB.map(function(c){
+  var w=Math.min(100,Math.abs(c.r)*3);
+  return '<tr><td><b>'+c.b+'</b></td><td class="mono">'+c.n+'</td>'+
+    '<td class="mono '+(c.r>=0?'pos':'neg')+'">'+(c.r>=0?'+':'')+c.r.toFixed(1)+'%</td>'+
+    '<td style="width:40%"><span class="meter" style="width:120px"><i style="width:'+w+'%;background:'+(c.r>=0?'var(--green)':'var(--red)')+'"></i></span></td></tr>';
+}).join('');
+
+/* ---------- tabs ---------- */
+var tabs=document.querySelectorAll('.tab');
+tabs.forEach(function(t){
+  t.addEventListener('click',function(){
+    tabs.forEach(function(x){x.setAttribute('aria-selected','false');});
+    t.setAttribute('aria-selected','true');
+    ['advisor','sell','whale','community','scorecard'].forEach(function(id){
+      document.getElementById('p-'+id).hidden = (id!==t.dataset.tab);
+    });
+    if(t.dataset.tab==='advisor'){ paintSparks(); }
+  });
+});
+</script>
