@@ -3425,10 +3425,33 @@ elif page == "Settings":
             if st.form_submit_button("Save to .env"):
                 if key_input.startswith("sk-"):
                     env_path = pathlib.Path(__file__).parent.parent / ".env"
-                    env_path.write_text(f"ANTHROPIC_API_KEY={key_input}\n")
+                    # Merge, don't clobber — .env may also hold BIGDATA_API_KEY,
+                    # DATABASE_URL, etc. Preserve every other line.
+                    lines, replaced = [], False
+                    if env_path.exists():
+                        for ln in env_path.read_text().splitlines():
+                            if ln.startswith("ANTHROPIC_API_KEY="):
+                                lines.append(f"ANTHROPIC_API_KEY={key_input}"); replaced = True
+                            else:
+                                lines.append(ln)
+                    if not replaced:
+                        lines.append(f"ANTHROPIC_API_KEY={key_input}")
+                    env_path.write_text("\n".join(lines) + "\n")
                     st.success("Saved to .env — restart the app for it to take effect.")
                 else:
                     st.error("Key should start with sk-ant-...")
+
+    # News source — shows which feed powers the News Mood layer
+    try:
+        from data.bigdata_source import enabled as _bd_enabled
+        _bd_on = _bd_enabled()
+    except Exception:
+        _bd_on = False
+    if _bd_on:
+        st.caption("📰 News source: **Bigdata.com** (entity-resolved institutional news) — active ✅")
+    else:
+        st.caption("📰 News source: **yfinance** (Yahoo headlines). Set `BIGDATA_API_KEY` in `.env` "
+                   "to upgrade the News Mood layer to Bigdata.com's institutional news.")
 
     st.markdown("---")
 

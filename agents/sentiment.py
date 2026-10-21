@@ -16,6 +16,16 @@ def _get_client():
 
 
 def _fetch_headlines(symbol: str, limit: int = 5) -> list:
+    # Prefer Bigdata.com's entity-resolved news when configured — cleaner and
+    # more on-target than Yahoo's ticker match. Falls back to yfinance silently.
+    try:
+        from data.bigdata_source import fetch_headlines as _bd_headlines, enabled as _bd_on
+        if _bd_on():
+            bd = _bd_headlines(symbol, limit=limit)
+            if bd:
+                return bd
+    except Exception:
+        pass
     try:
         news = yf.Ticker(symbol).news or []
     except Exception:

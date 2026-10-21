@@ -13,3 +13,7 @@ lxml==6.1.1
 pdfplumber==0.11.10
 # Only needed if you point DATABASE_URL at Postgres; SQLite is the default.
 psycopg[binary]==3.3.4
+# Optional: Bigdata.com (RavenPack) as the news/sentiment source. Only used
+# when BIGDATA_API_KEY (or BIGDATA_USERNAME/PASSWORD) is set; the app falls
+# back to yfinance news without it.
+bigdata-client==2.21.0
