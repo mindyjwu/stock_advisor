@@ -671,8 +671,9 @@ def _sidebar_snapshot():
         "asof":         _asof,
     }
 
-PAGES = ["Dashboard", "Stock Advisor", "Scan & Alerts", "Whale Watch", "Community", "Lists & History", "How It Works", "Settings"]
+PAGES = ["Daily Brief", "Dashboard", "Stock Advisor", "Scan & Alerts", "Whale Watch", "Community", "Lists & History", "How It Works", "Settings"]
 PAGE_ICONS = {
+    "Daily Brief":    "☀️",
     "Dashboard":      "◼",
     "Stock Advisor":  "🎯",
     "Scan & Alerts":  "🔭",
@@ -905,6 +906,13 @@ if st.session_state.get("run_analysis"):
     st.session_state["regime"] = regime
     st.success("Analysis complete!")
 
+
+# ══════════════════════════════════════════════════════════════════════════════
+# DAILY BRIEF — statement upload → stance + if-then price rules (5-minute read)
+# ══════════════════════════════════════════════════════════════════════════════
+if page == "Daily Brief":
+    from app.daily_brief_page import render as _render_daily_brief
+    _render_daily_brief(UID, load_holdings, save_holdings, backup_holdings, log_import)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # DASHBOARD
@@ -3507,9 +3515,9 @@ elif page == "Settings":
     with import_tab_pdf:
         pdf_file = st.file_uploader("Upload Chase portfolio or statement PDF", type=["pdf"], key="chase_pdf")
         if pdf_file:
-            from data.pdf_import import parse_chase_pdf
+            from data.pdf_import import parse_any_pdf
             with st.spinner("Parsing PDF…"):
-                result = parse_chase_pdf(pdf_file.read())
+                result = parse_any_pdf(pdf_file.read())
 
             if result["warnings"]:
                 for w in result["warnings"]:

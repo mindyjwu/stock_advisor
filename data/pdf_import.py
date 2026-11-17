@@ -178,3 +178,148 @@ def parse_chase_pdf(file_bytes: bytes) -> dict:
         "warnings":  warnings,
         "raw_table": pos_df.drop(columns=["_sym"], errors="ignore"),
     }
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# J.P. Morgan Self-Directed monthly statement (text layout)
+# ══════════════════════════════════════════════════════════════════════════════
+# The monthly statement has no ruled tables, so extract_tables() finds nothing
+# useful. Its Holdings section is plain text, one block per position:
+#
+#   APPLE INC 10.08359 344.63 3,475.11 198.03 1,996.88 1,478.23 --      (multi-lot)
+#   Symbol: AAPL 10 Apr 2024 3 1,033.89 168 504.00 529.89 LT            (one lot per line)
+#   ADVANCED MICRO DEVICES 03 Jul 2025 5 504.8 2,524.00 137.89 689.45 1,834.55 LT --
+#   Symbol: AMD                                                        (single lot)
+#
+# Columns: [date] quantity price market-value unit-cost cost-basis gain/loss.
+_NUM = r"\(?[\d,]+\.?\d*\)?"
+_STMT_HEADER_RE = re.compile(
+    rf"^([A-Z][A-Z0-9 &\.\-'/\(\)]+?) (?:(\d\d \w\w\w \d\d\d\d) )?"
+    rf"({_NUM}) ({_NUM}) ({_NUM}) ({_NUM}) (?:A )?({_NUM}) ({_NUM})(?: (LT|ST))? --$"
+)
+_STMT_LOT_RE = re.compile(
+    rf"(\d\d \w\w\w \d\d\d\d) ({_NUM}) ({_NUM}) ({_NUM}) ({_NUM}) ({_NUM}) (LT|ST)"
+)
+_STMT_SYMBOL_RE = re.compile(r"Symbol: ([A-Z][A-Z\.]{0,6})\b")
+_STMT_PERIOD_RE = re.compile(
+    r"Statement Period:?\s*([A-Z][a-z]+ \d{1,2})\s*-\s*([A-Z][a-z]+ \d{1,2}),\s*(\d{4})"
+)
+_CASH_SYMBOLS = {"QACDS"}
+
+
+def _stmt_num(s: str) -> float:
+    neg = s.startswith("(")
+    v = float(s.strip("()").replace(",", ""))
+    return -v if neg else v
+
+
+def parse_statement_text(text: str) -> dict:
+    """Parse the text of a J.P. Morgan Self-Directed statement.
+
+    Returns {"positions": [...], "cash", "statement": {...}, "warnings": [...]}.
+    positions carry fractional quantities and per-share cost; the richer
+    per-lot detail (dates, long/short-term) lives under statement["lots"].
+    """
+    from datetime import datetime
+
+    lines = [l.strip() for l in text.split("\n")]
+    warnings, positions, lots_by_symbol, names = [], [], {}, {}
+    stmt_prices, cur = {}, None
+
+    for line in lines:
+        if line.startswith("TOTAL EQUITY") or line.startswith("TRADE AND INVESTMENT ACTIVITY"):
+            break
+        m = _STMT_HEADER_RE.match(line)
+        if m and not line.startswith("TOTAL"):
+            cur = {
+                "name": m.group(1).strip(), "symbol": None,
+                "quantity": _stmt_num(m.group(3)), "price": _stmt_num(m.group(4)),
+                "market_value": _stmt_num(m.group(5)), "unit_cost": _stmt_num(m.group(6)),
+                "cost": _stmt_num(m.group(7)), "lots": [],
+            }
+            if m.group(2):  # single-lot position: the lot is on the header line
+                cur["lots"].append({"date": m.group(2), "quantity": cur["quantity"],
+                                    "cost": cur["cost"], "term": m.group(9) or ""})
+            positions.append(cur)
+            continue
+        if cur is None:
+            continue
+        s = _STMT_SYMBOL_RE.search(line)
+        if s and cur["symbol"] is None:
+            cur["symbol"] = s.group(1)
+        lm = _STMT_LOT_RE.search(line)
+        if lm:
+            cur["lots"].append({"date": lm.group(1), "quantity": _stmt_num(lm.group(2)),
+                                "cost": _stmt_num(lm.group(5)), "term": lm.group(7)})
+
+    out_positions = []
+    for p in positions:
+        sym = p["symbol"]
+        if not sym or sym in _CASH_SYMBOLS or p["quantity"] <= 0:
+            continue
+        per_share = p["cost"] / p["quantity"] if p["quantity"] else p["unit_cost"]
+        out_positions.append({"symbol": sym, "quantity": round(p["quantity"], 5),
+                              "cost_basis": round(per_share, 4)})
+        lots_by_symbol[sym] = p["lots"]
+        names[sym] = p["name"].title()
+        stmt_prices[sym] = p["price"]
+
+    def _money_after(label):
+        for line in lines:
+            if line.startswith(label):
+                m = re.search(r"\$?\(?([\d,]+\.\d\d)\)?", line[len(label):])
+                if m:
+                    return float(m.group(1).replace(",", ""))
+        return None
+
+    cash = _money_after("TOTAL CASH & MONEY MARKETS")
+    total_equity = _money_after("TOTAL EQUITY")
+    account_value = _money_after("ENDING ACCOUNT VALUE")
+
+    period_end = None
+    pm = _STMT_PERIOD_RE.search(text)
+    if pm:
+        try:
+            period_end = datetime.strptime(f"{pm.group(2)}, {pm.group(3)}", "%B %d, %Y").date().isoformat()
+        except ValueError:
+            pass
+
+    parsed_mv = round(sum(p["market_value"] for p in positions
+                          if p["symbol"] and p["symbol"] not in _CASH_SYMBOLS), 2)
+    if total_equity is not None and abs(parsed_mv - total_equity) > max(1.0, 0.001 * total_equity):
+        warnings.append(
+            f"Parsed positions add up to ${parsed_mv:,.2f} but the statement's equity total is "
+            f"${total_equity:,.2f} — a position may have been missed. Check the preview."
+        )
+
+    return {
+        "positions": out_positions,
+        "cash": cash,
+        "warnings": warnings,
+        "raw_table": None,
+        "statement": {
+            "period_end": period_end, "account_value": account_value,
+            "equity_value": total_equity if total_equity is not None else parsed_mv,
+            "cash": cash, "lots": lots_by_symbol, "names": names, "prices": stmt_prices,
+        },
+    }
+
+
+def parse_statement_pdf(file_bytes: bytes) -> dict:
+    """Text-layout statement parser. Returns positions=[] if this isn't one."""
+    with pdfplumber.open(BytesIO(file_bytes)) as pdf:
+        text = "\n".join((page.extract_text() or "") for page in pdf.pages)
+    return parse_statement_text(text)
+
+
+def parse_any_pdf(file_bytes: bytes) -> dict:
+    """Try the statement text layout first, then fall back to table detection."""
+    try:
+        res = parse_statement_pdf(file_bytes)
+        if res["positions"]:
+            return res
+    except Exception:
+        pass
+    res = parse_chase_pdf(file_bytes)
+    res.setdefault("statement", None)
+    return res

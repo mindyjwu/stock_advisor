@@ -8,6 +8,7 @@ It's a multi-user stock advisory dashboard that grades every stock on your watch
 
 ## What it actually does
 
+- **Daily Brief** — the five-minute page. Upload a monthly statement PDF and every holding gets a Bull / Neutral / Bear stance with the reasons, plus a few fixed if-then price rules ("closes below $X → sell half", "reaches $Y → sell a third", "hasn't recovered by a date → sell more", "dips to $Z → add $250"). The top of the page only answers one question: did anything hit a level today? Rules are anchored when they're set and floors only ratchet up, so they don't drift with the price. Mechanical guidelines, not advice — nothing here places an order.
 - **Invest My Cash** — enter a deposit, pick a risk style, get a concrete buy plan: conviction-weighted dollars, per-stock and per-sector caps, a concentration guard so it won't tell you to buy more of what you already hold too much of, and a copy-paste order checklist.
 - **Three-factor scoring** — every stock gets 0–100 grades across Company Health (P/E, PEG, revenue growth, margins, debt, ROE), Price Trend (RSI, MACD, moving averages, drawdown), and News Mood (Claude reads recent headlines and grades sentiment). A market-regime detector — VIX plus an AI read on the tape — decides how much weight each factor gets, or you can lock in your own mix.
 - **Agreement signal** — when all three models agree, the pick gets flagged; when they disagree, the position size shrinks automatically instead of me having to remember to be cautious.
@@ -66,9 +67,11 @@ Thresholds: 75+ Strong Buy, 60+ Buy, 45+ Watch, below 45 Avoid. Weights are over
 app/
   dashboard.py        Streamlit UI
   auth.py              Sign-in / sign-up
+  daily_brief_page.py  Daily Brief UI (statement upload, filters, price ladders)
   agents/              fundamentals.py, technicals.py, sentiment.py, regime.py,
                         allocator.py, screener.py, supply_chain.py,
-                        sell_signals.py, track_record.py, alerts.py, whale_watch.py
+                        sell_signals.py, track_record.py, alerts.py, whale_watch.py,
+                        daily_brief.py
 scripts/               run_analysis.py, market_scan.py, alert_poller.py,
                         run_alerts.py, migrate_to_postgres.py
 data/                  loader.py, sp500.py, pdf_import.py
